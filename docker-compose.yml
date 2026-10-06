@@ -29,7 +29,7 @@ services:
       POSTGRES_USER: vytals
       POSTGRES_PASSWORD: vytals
     ports:
-      - "5432:5432"
+      - "5434:5432"  # 5432 = host-local pg, 5433 = care_db — vytals lives on 5434
     volumes:
       - pgdata:/var/lib/postgresql/data
 

@@ -11,7 +11,7 @@ streaming:
 
 postgres:
   host: localhost
-  port: 5432
+  port: 5434  # host 5432 = local pg, 5433 = care_db — see docker-compose.yml
   db: vytals
   user: vytals
   password: vytals

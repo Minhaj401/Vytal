@@ -31,4 +31,8 @@ web:
 	npm --prefix web run dev
 
 infra:
-	docker compose up -d kafka postgres zookeeper
+	# legacy docker-compose 1.29 is broken vs Docker 29 (KeyError ContainerConfig),
+	# and 5432/5433 are taken on this host — run pg directly on 5434
+	docker run -d --name vytal-postgres --restart unless-stopped \
+		-e POSTGRES_DB=vytals -e POSTGRES_USER=vytals -e POSTGRES_PASSWORD=vytals \
+		-p 5434:5432 -v vytal_pgdata:/var/lib/postgresql/data postgres:16
