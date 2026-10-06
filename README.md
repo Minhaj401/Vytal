@@ -1,5 +1,7 @@
 # Vytals MVP — Real-Time Vital Risk Scoring
 
+![ci](https://github.com/Minhaj401/Vytal/actions/workflows/ci/badge.svg)
+
 `Patient Vitals → Kafka Producer → vitals.raw → Spark Streaming → validate → window → build_features() → XGBoost → Risk 0–100 → PostgreSQL → Next.js`
 
 ## Quickstart (demo without Kafka)
