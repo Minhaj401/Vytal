@@ -45,7 +45,7 @@ def main():
            .load())
 
     js = raw.selectExpr("CAST(key AS STRING) k", "CAST(value AS STRING) v")
-    parsed = js.select(F.from_json("v", schema).alias("d")).select("d.*")
+    parsed = js.select(F.from_json("v", schema).alias("d"), "k").select("d.*", "k")
     # validation + timestamp conversion + event-time
     valid = (parsed
              .withColumn("event_ts", F.to_timestamp("event_time"))
@@ -111,8 +111,11 @@ def main():
         res["window_start"] = pdf["w"].apply(lambda w: str(w["start"]) if w is not None else None).values if "w" in pdf else None
         # write to postgres (create table if needed elsewhere) + console
         try:
-            (batch_df.sparkSession.createDataFrame(res)
-             .write.jdbc(pg_url, "risk_scores", mode="append", properties=pg_props))
+            from pyspark.sql import functions as _F
+            sdf = (batch_df.sparkSession.createDataFrame(res)
+                   .withColumn("window_end", _F.to_timestamp("window_end"))
+                   .withColumn("window_start", _F.to_timestamp("window_start")))
+            sdf.write.jdbc(pg_url, "risk_scores", mode="append", properties=pg_props)
         except Exception as e:
             print(f"[batch {batch_id}] pg write failed (ok in dev): {e}")
         print(f"[batch {batch_id}] scored {len(res)} windows; top={res.sort_values('risk_score', ascending=False).head(3).to_dict('records')}")
@@ -120,7 +123,7 @@ def main():
     q = (agg.writeStream
          .outputMode("update")
          .foreachBatch(write_batch)
-         .option("checkpointLocation", "checkpoints/vytals")
+         .option("checkpointLocation", "file:///home/minhaj/vytal/checkpoints/vytals")
          .trigger(processingTime="30 seconds")
          .start())
     print(f"streaming {bootstrap}/{topic} watermark={watermark} window={window}/{slide} -> postgres risk_scores")
