@@ -1,0 +1,33 @@
+kafka:
+  bootstrap_servers: localhost:9092
+  topic: vitals.raw
+  partitions: 3
+  acks: all
+
+streaming:
+  watermark: "2 minutes"
+  window: "5 minutes"
+  slide: "1 minute"
+
+postgres:
+  host: localhost
+  port: 5432
+  db: vytals
+  user: vytals
+  password: vytals
+
+api:
+  host: 0.0.0.0
+  port: 8000
+
+model:
+  path: models/xgb_risk.json
+  version: v1
+
+vitals:
+  - hr
+  - spo2
+  - rr
+  - temp_c
+  - sbp
+  - dbp
