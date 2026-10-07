@@ -3,7 +3,8 @@ PY := $(VENV)/bin/python
 
 install:
 	python3 -m venv $(VENV)
-	$(VENV)/bin/pip install -r requirements.txt
+	$(VENV)/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
+	$(VENV)/bin/python -m pip install -r requirements.txt
 	npm --prefix web install
 
 sample:
@@ -16,7 +17,7 @@ predict:
 	PYTHONPATH=src $(PY) -m vytals.ml.predict --input data/vitals.csv --model models/xgb_risk.json
 
 api:
-	PYTHONPATH=src $(VENV)/bin/uvicorn vytals.api.server:app --reload --port 8000
+	PYTHONPATH=src $(PY) -m uvicorn vytals.api.server:app --reload --port 8000
 
 producer:
 	PYTHONPATH=src $(PY) -m vytals.ingest.producer --input data/vitals.csv --speed 60
