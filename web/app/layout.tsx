@@ -23,7 +23,6 @@ export default function Root({ children }: { children: React.ReactNode }) {
               <span className="pulse-dot mr-1 inline-block h-2 w-2 rounded-full bg-green-500" />
               <span className="apple-secondary mr-3 text-[13px]">Live</span>
               <Link href="/" className="rounded-full bg-black px-4 py-1.5 text-white">Dashboard</Link>
-              <a href="https://github.com/Minhaj401/Vytal" target="_blank" className="rounded-full px-4 py-1.5 text-[#0071E3]">GitHub</a>
             </div>
           </div>
         </nav>

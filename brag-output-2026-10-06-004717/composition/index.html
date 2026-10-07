@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Vytals — Brag</title>
+    <script src="assets/gsap.min.js"></script>
+    <script src="assets/music/audio-data.js"></script>
+    <style>
+      html, body { margin: 0; padding: 0; background: #000; }
+      #root {
+        position: relative; width: 100%; height: 100%; overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Inter, sans-serif;
+        color: #1D1D1F; background: #F5F5F7;
+      }
+      .clip { position: absolute; inset: 0; }
+      .caption {
+        position: absolute; left: 0; right: 0; bottom: 56px; text-align: center; pointer-events: none;
+      }
+      .caption .t { font-size: 46px; font-weight: 700; letter-spacing: -0.02em; }
+      .caption .s { margin-top: 10px; font-size: 24px; color: #86868B; font-weight: 500; }
+      .caption-dark .t { color: #F5F5F7; }
+      .caption-dark .s { color: #86868B; }
+      .kicker {
+        position: absolute; top: 48px; left: 0; right: 0; text-align: center;
+        font-size: 20px; letter-spacing: 0.28em; font-weight: 700; color: #86868B;
+      }
+      .cropframe { position: absolute; overflow: hidden; border-radius: 28px; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,0.10); }
+      .cropframe img { position: absolute; display: block; }
+      .pill {
+        display: inline-block; padding: 8px 18px; border-radius: 999px; background: #1D1D1F; color: #fff;
+        font-size: 20px; font-weight: 600; letter-spacing: 0.02em;
+      }
+      #glow {
+        position: absolute; inset: -10%; pointer-events: none; opacity: 0.5;
+        background: radial-gradient(ellipse at 50% 45%, rgba(0,113,227,0.10), rgba(0,113,227,0) 60%);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="1920" data-height="1080" data-duration="18">
+
+      <!-- 1: hook -->
+      <section id="s1" class="clip" data-start="0" data-duration="2" style="background:#000;">
+        <svg id="ecg" width="1920" height="1080" viewBox="0 0 1920 1080" style="position:absolute;inset:0;">
+          <path id="ecgpath" d="M0 540 L560 540 L640 540 L670 470 L720 640 L760 540 L960 540 L1040 540 L1070 430 L1140 690 L1180 540 L1920 540"
+                fill="none" stroke="#FF3B30" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+        </svg>
+        <div id="dot" style="position:absolute;left:50%;top:540px;width:22px;height:22px;margin-left:-11px;margin-top:-11px;border-radius:50%;background:#FF3B30;box-shadow:0 0 24px rgba(255,59,48,0.8);"></div>
+        <div class="caption caption-dark"><div class="t" id="s1cap" style="font-size:34px;color:#F5F5F7;">One heartbeat</div></div>
+      </section>
+
+      <!-- 2: dashboard -->
+      <section id="s2" class="clip" data-start="2" data-duration="3" style="background:#F5F5F7;">
+        <div id="glow"></div>
+        <div id="dashframe" style="position:absolute;left:50%;top:100px;width:1162px;height:760px;margin-left:-581px;border-radius:28px;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.12);">
+          <img id="dashimg" src="assets/img/apple-dash2.png" style="width:1741px;height:1139px;transform:scale(0.6674);transform-origin:top left;" />
+        </div>
+        <div class="kicker" id="s2kick">LIVE RISK · 0–100</div>
+        <div class="caption"><div class="t">Vytals — live risk, 0–100</div><div class="s">12 patients · avg 31.4 · max 98.4 · 2 critical</div></div>
+      </section>
+
+      <!-- 3: P006 reveal -->
+      <section id="s3" class="clip" data-start="5" data-duration="4" style="background:#F5F5F7;">
+        <div class="cropframe" style="left:160px;top:120px;width:1600px;height:620px;">
+          <img id="p006img" src="assets/img/apple-patient.png" style="width:2611px;height:1786px;left:-469px;top:-182px;" />
+        </div>
+        <div class="caption"><div class="t">P006 flips CRITICAL</div><div class="s">ring gauge re-scores every window · XGBoost 0–100</div></div>
+      </section>
+
+      <!-- 4: HR trace + SpO2 -->
+      <section id="s4" class="clip" data-start="9" data-duration="4" style="background:#F5F5F7;">
+        <div class="cropframe" style="left:110px;top:130px;width:830px;height:560px;">
+          <img id="hrimg" src="assets/img/apple-patient.png" style="width:2745px;height:1879px;left:-512px;top:-678px;" />
+        </div>
+        <div class="cropframe" style="left:980px;top:130px;width:830px;height:560px;">
+          <img id="spoimg" src="assets/img/apple-patient.png" style="width:2752px;height:1885px;left:-1400px;top:-684px;" />
+        </div>
+        <div class="caption"><div class="t">Every vital, 2s refresh</div><div class="s">HR live trace · SpO₂ + risk overlay</div></div>
+      </section>
+
+      <!-- 5: raw stream -->
+      <section id="s5" class="clip" data-start="13" data-duration="3" style="background:#F5F5F7;">
+        <div class="cropframe" style="left:110px;top:120px;width:1700px;height:520px;">
+          <img id="streamimg" src="assets/img/apple-patient.png" style="width:2678px;height:1832px;left:-500px;top:-1230px;" />
+        </div>
+        <div class="caption"><div class="t" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:34px;">Kafka → Spark → XGBoost → Postgres</div><div class="s">raw stream tail · vitals.raw · 160 pts sliding window</div></div>
+      </section>
+
+      <!-- 6: outro -->
+      <section id="s6" class="clip" data-start="16" data-duration="2" style="background:#000;">
+        <div id="logoMark" style="position:absolute;left:50%;top:330px;width:120px;height:120px;margin-left:-60px;border-radius:28px;background:#1D1D1F;border:1px solid #333;display:flex;align-items:center;justify-content:center;">
+          <svg width="72" height="72" viewBox="0 0 72 72"><path d="M14 18 L26 18 L36 38 L46 18 L58 18 L44 54 L54 54 L54 62 L18 62 L18 54 L28 54 Z" fill="#F5F5F7" transform="scale(0.85) translate(6,2)"/></svg>
+        </div>
+        <div style="position:absolute;left:0;right:0;top:500px;text-align:center;">
+          <div id="outroT" style="font-size:84px;font-weight:700;color:#F5F5F7;letter-spacing:-0.03em;">Vytals.</div>
+          <div id="outroS" style="margin-top:16px;font-size:30px;color:#86868B;font-weight:500;">Open the dashboard.</div>
+        </div>
+      </section>
+
+      <audio id="music" data-start="0" data-duration="18" data-track-index="0" data-volume="0.32" src="assets/music/happy-beats-business-moves-vol-1-by-ende-dot-app.mp3"></audio>
+    </div>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      // --- Scene 1: ECG hook (0-2s)
+      const path = document.getElementById('ecgpath');
+      const L = path.getTotalLength();
+      path.style.strokeDasharray = L;
+      path.style.strokeDashoffset = L;
+      tl.to(path, { strokeDashoffset: 0, duration: 1.4, ease: 'power2.inOut' }, 0.15);
+      tl.fromTo('#dot', { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.out' }, 1.15);
+      tl.fromTo('#s1cap', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 1.2);
+
+      // --- Scene 2: dashboard (2-5s)
+      tl.fromTo('#dashframe', { opacity: 0, scale: 1.06 }, { opacity: 1, scale: 1, duration: 0.9, ease: 'power3.out' }, 2.1);
+      tl.fromTo('#s2 .kicker, #s2 .caption', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6, stagger: 0.1, ease: 'power2.out' }, 2.7);
+
+      // --- Scene 3: P006 (5-9s)
+      tl.fromTo('#s3 .cropframe', { opacity: 0, scale: 1.04 }, { opacity: 1, scale: 1, duration: 0.8, ease: 'power3.out' }, 5.15);
+      tl.fromTo('#p006img', { x: 24 }, { x: 0, duration: 1.6, ease: 'power2.out' }, 5.15);
+      tl.fromTo('#s3 .caption', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, 5.6);
+
+      // --- Scene 4: HR + SpO2 (9-13s)
+      tl.fromTo('#s4 .cropframe', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.7, stagger: 0.15, ease: 'power3.out' }, 9.15);
+      tl.to('#hrimg', { x: -70, duration: 3.2, ease: 'none' }, 9.3);
+      tl.fromTo('#s4 .caption', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, 9.7);
+
+      // --- Scene 5: stream tail (13-16s)
+      tl.fromTo('#s5 .cropframe', { opacity: 0 }, { opacity: 1, duration: 0.5 }, 13.1);
+      tl.to('#streamimg', { y: -46, duration: 2.4, ease: 'none' }, 13.2);
+      tl.fromTo('#s5 .caption', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' }, 13.4);
+
+      // --- Scene 6: outro (16-18s); beat-locked: 16.02s (strong cue)
+      tl.fromTo('#logoMark', { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.45, ease: 'back.out(1.6)' }, 16.02);
+      tl.fromTo('#outroT', { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55, ease: 'power3.out' }, 16.12);
+      tl.fromTo('#outroS', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 16.3);
+
+      // beat-grid: card entrances snap to beats near 2.52 / 3.02 / 3.52
+      // (scene 2 caption lines staged at 2.7s, aligned to 2.52s beat + 0.18 ease-in)
+
+      // --- Audio-reactive: subtle bass breathing on glow + ECG dot
+      const glow = document.getElementById('glow');
+      const dot = document.getElementById('dot');
+      const FPS = window.AUDIO_DATA.fps;
+      const N = Math.min(window.AUDIO_DATA.totalFrames, Math.floor(18 * FPS));
+      for (let f = 0; f < N; f++) {
+        tl.call((function (fr) {
+          return function () {
+            const b = fr.bands[0] || 0;
+            glow.style.opacity = (0.25 + b * 0.45).toFixed(3);
+            dot.style.transform = 'scale(' + (1 + b * 0.9).toFixed(3) + ')';
+          };
+        })(window.AUDIO_DATA.frames[f]), [], f / FPS);
+      }
+
+      window.__timelines['main'] = tl;
+    </script>
+  </body>
+</html>

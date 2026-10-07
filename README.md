@@ -1,6 +1,5 @@
 # Vytals — Real-Time Vital Risk Scoring
 
-![ci](https://github.com/Minhaj401/Vytal/actions/workflows/ci/badge.svg)
 
 **Vytals** watches patient vitals (HR, SpO₂, RR, temp, BP) in real time, scores each patient's risk on a single 0–100 number, and streams it to a live dashboard. Built for the course project: *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data.*
 

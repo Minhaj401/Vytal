@@ -1,0 +1,7 @@
+Every vital. Every patient. One score.
+
+Vytals — real-time ICU risk, 0–100. Kafka → Spark → XGBoost → Postgres, live on the dashboard.
+
+Two buttons. One score tells you who needs a nurse.
+
+Open the dashboard ↘
