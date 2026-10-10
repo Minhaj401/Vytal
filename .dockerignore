@@ -4,6 +4,4 @@ node_modules
 .next
 .git
 checkpoints
-data/*.csv
-models/*
-!models/.gitkeep
+brag-output-*

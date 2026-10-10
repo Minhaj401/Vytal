@@ -8,3 +8,11 @@ checkpoints/
 .env
 .DS_Store
 *.tsbuildinfo
+bin/
+/vytal-server
+/vytal-producer
+/vytal-stream
+/vytal-loader
+/vytal-train
+/vytal-predict
+/vytal-makedata

@@ -1,0 +1,30 @@
+# Vytals all-in-one: Go API + Next.js web under supervisord.
+# Postgres / Kafka / Zookeeper stay as separate containers (see README).
+FROM golang:1.22-bookworm
+
+WORKDIR /app
+ENV CGO_ENABLED=0
+
+# OS deps: node for Next.js, supervisor for process management
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl gnupg supervisor \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go deps + binaries
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . ./
+RUN go build -o bin/vytal-server ./cmd/vytal-server
+
+# Web build once so boot is fast
+RUN cd web && npm ci && npm run build
+
+# Supervisor: api + web as one container
+RUN printf '[supervisord]\nnodaemon=true\n' > /etc/supervisor/conf.d/vytals.conf \
+ && printf '\n[program:api]\ncommand=/app/bin/vytal-server\ndirectory=/app\nautostart=true\nautorestart=true\nstdout_logfile=/dev/fd/1\nstderr_logfile=/dev/fd/2\n' >> /etc/supervisor/conf.d/vytals.conf \
+ && printf '\n[program:web]\ncommand=npm --prefix web run start -- -p 3000\ndirectory=/app\nautostart=true\nautorestart=true\nstdout_logfile=/dev/fd/1\nstderr_logfile=/dev/fd/2\n' >> /etc/supervisor/conf.d/vytals.conf
+
+EXPOSE 3000 8000
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/vytals.conf"]

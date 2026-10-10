@@ -10,28 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install deps
+          go-version: "1.22"
+          cache: true
+      - name: Build + vet
         run: |
-          pip install -r requirements.txt
-          pip install httpx  # API smoke client
-      - name: Compile check
-        run: python -m py_compile src/vytals/config.py src/vytals/data/loader.py src/vytals/ingest/producer.py src/vytals/streaming/job.py src/vytals/features/windowed.py src/vytals/ml/risk_model.py src/vytals/ml/train.py src/vytals/ml/predict.py src/vytals/sim/replay.py src/vytals/api/server.py src/vytals/store/db.py
+          go build ./...
+          go vet ./...
       - name: Sample data
-        run: python scripts/make_sample_data.py --patients 4 --minutes 30 --out /tmp/vitals_ci.csv
+        run: go run ./cmd/vytal-makedata --patients 4 --minutes 30 --out /tmp/vitals_ci.csv
       - name: Loader check
-        run: PYTHONPATH=src python -m vytals.data.loader --input /tmp/vitals_ci.csv
+        run: go run ./cmd/vytal-loader --input /tmp/vitals_ci.csv
       - name: Train check (small)
-        run: PYTHONPATH=src python -m vytals.ml.train --input /tmp/vitals_ci.csv --out /tmp/xgb_ci.json
+        run: go run ./cmd/vytal-train --input /tmp/vitals_ci.csv --out /tmp/risk_ci.json
       - name: Predict check
-        run: PYTHONPATH=src python -m vytals.ml.predict --input /tmp/vitals_ci.csv --model /tmp/xgb_ci.json --limit 4
+        run: go run ./cmd/vytal-predict --input /tmp/vitals_ci.csv --model /tmp/risk_ci.json --limit 4
       - name: API smoke
         run: |
-          PYTHONPATH=src VYTALS_DATA=/tmp/vitals_ci.csv VYTALS_MODEL=/tmp/xgb_ci.json python -m uvicorn vytals.api.server:app --port 8000 & echo $! > /tmp/api.pid
-          sleep 12
+          VYTALS_DATA=/tmp/vitals_ci.csv VYTALS_MODEL=/tmp/risk_ci.json go run ./cmd/vytal-server & echo $! > /tmp/api.pid
+          sleep 6
           curl -sf localhost:8000/api/health
           curl -sf localhost:8000/api/patients | head -c 200; echo
           curl -sf localhost:8000/api/analysis | head -c 200; echo

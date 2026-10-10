@@ -21,8 +21,8 @@ api:
   port: 8000
 
 model:
-  path: models/xgb_risk.json
-  version: v1
+  path: models/risk_gbm.json
+  version: v2
 
 vitals:
   - hr

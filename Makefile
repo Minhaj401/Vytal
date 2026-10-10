@@ -1,32 +1,44 @@
-VENV ?= .venv
-PY := $(VENV)/bin/python
+GOBIN ?= bin
+GO := go
 
-install:
-	python3 -m venv $(VENV)
-	$(VENV)/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
-	$(VENV)/bin/python -m pip install -r requirements.txt
+build:
+	mkdir -p $(GOBIN)
+	$(GO) build -o $(GOBIN)/vytal-server   ./cmd/vytal-server
+	$(GO) build -o $(GOBIN)/vytal-producer ./cmd/vytal-producer
+	$(GO) build -o $(GOBIN)/vytal-stream   ./cmd/vytal-stream
+	$(GO) build -o $(GOBIN)/vytal-loader   ./cmd/vytal-loader
+	$(GO) build -o $(GOBIN)/vytal-train    ./cmd/vytal-train
+	$(GO) build -o $(GOBIN)/vytal-predict  ./cmd/vytal-predict
+	$(GO) build -o $(GOBIN)/vytal-makedata ./cmd/vytal-makedata
+	$(GO) build -o $(GOBIN)/vytal-db       ./cmd/vytal-db
 	npm --prefix web install
 
+vet:
+	$(GO) vet ./...
+
 sample:
-	$(PY) scripts/make_sample_data.py --patients 12 --minutes 180 --out data/vitals.csv
+	$(GO) run ./cmd/vytal-makedata --patients 12 --minutes 180 --out data/vitals.csv
 
 train:
-	PYTHONPATH=src $(PY) -m vytals.ml.train --input data/vitals.csv --out models/xgb_risk.json
+	$(GO) run ./cmd/vytal-train --input data/vitals.csv --out models/risk_gbm.json
 
 predict:
-	PYTHONPATH=src $(PY) -m vytals.ml.predict --input data/vitals.csv --model models/xgb_risk.json
+	$(GO) run ./cmd/vytal-predict --input data/vitals.csv --model models/risk_gbm.json
+
+loader:
+	$(GO) run ./cmd/vytal-loader --input data/vitals.csv
 
 api:
-	PYTHONPATH=src $(PY) -m uvicorn vytals.api.server:app --reload --port 8000
+	$(GO) run ./cmd/vytal-server
 
 producer:
-	PYTHONPATH=src $(PY) -m vytals.ingest.producer --input data/vitals.csv --speed 60
+	$(GO) run ./cmd/vytal-producer --input data/vitals.csv --speed 60
 
 stream:
-	PYTHONPATH=src $(PY) -m vytals.streaming.job
+	$(GO) run ./cmd/vytal-stream
 
 db:
-	PYTHONPATH=src $(PY) -c "from vytals.store.db import ensure; ensure(); print('tables ok')"
+	$(GO) run ./cmd/vytal-db
 
 web:
 	npm --prefix web run dev
