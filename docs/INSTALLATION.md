@@ -9,9 +9,9 @@
 
 | Tool | Version | Check | Install hint |
 |---|---|---|---|
-| Python | 3.10+ (3.12–3.14 OK) | `python3 --version` | apt: `sudo apt install python3 python3-venv` · brew: `brew install python` |
-| Node.js | 18.17+ (20/22/26 OK) | `node --version` | https://nodejs.org or `nvm install 22` |
-| make | any | `make --version` | apt: `build-essential` · preinstalled on macOS (Xcode CLT) |
+| Python | 3.10+ (3.12–3.14 OK) | `python3 --version` | Arch: `sudo pacman -S python` · apt: `sudo apt install python3 python3-venv` · brew: `brew install python` |
+| Node.js | 18.17+ (20/22/26 OK) | `node --version` | https://nodejs.org or `nvm install 22` (Omarchy ships `mise`) |
+| make | any | `make --version` | Arch: `sudo pacman -S base-devel` · apt: `build-essential` · preinstalled on macOS |
 | git, curl, unzip | any | `git --version` | preinstalled on macOS |
 
 No Java, no Docker, no database needed for demo mode.
@@ -26,13 +26,14 @@ No Java, no Docker, no database needed for demo mode.
 
 ```bash
 # JDK 17 examples
-sudo apt install openjdk-17-jdk-headless        # Debian/Ubuntu
-sudo apt install openjdk-17-jdk                 # some distros
-brew install --cask temurin@17                  # macOS
-java -version                                   # must show 17 (or 8/11)
+omarchy pkg add jdk17-openjdk                  # Arch / Omarchy
+sudo pacman -S jdk17-openjdk                   # Arch (plain)
+sudo apt install openjdk-17-jdk-headless       # Debian/Ubuntu
+brew install --cask temurin@17                 # macOS
+java -version                                  # must show 17 (or 8/11)
 ```
 
-If several JDKs are installed: `sudo update-alternatives --config java` (Linux) or `export JAVA_HOME=$(/usr/libexec/java_home -v 17)` (macOS).
+If several JDKs are installed: Debian `sudo update-alternatives --config java` · Arch `export JAVA_HOME=/usr/lib/jvm/java-17-openjdk` (add to `~/.config/hypr/envs.conf` or shell profile) · macOS `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`.
 
 ## 2. Get the code + install dependencies
 
