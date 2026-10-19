@@ -97,7 +97,8 @@ make db
 make producer                   # CSV → vitals.raw @ 60×
 
 # 4) Spark streaming → risk_scores in Postgres   (first run downloads jars — needs network)
-#    NOTE: set the checkpoint dir in src/vytals/streaming/job.py to a writable path first
+#    checkpoint dir defaults to <repo>/checkpoints/vytals (created automatically);
+#    override with --checkpoint or VYTALS_CHECKPOINT
 make stream
 
 # 5) API + dashboard, now backed by Postgres
@@ -189,7 +190,7 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | `/api/health` says no CSV | `make sample` (or `make real-data` + `VYTALS_DATA=...`) |
 | `cannot reach Kafka at localhost:9092` | start infra (§4) first; producer fails fast by design |
 | Spark fails immediately mentioning Java | wrong JDK: need 8/11/17, set `JAVA_HOME`, `java -version` to confirm |
-| Spark job fails on checkpoint / permission | set `checkpointLocation` in `streaming/job.py` to a writable absolute dir |
+| Spark job fails on checkpoint / permission | checkpoint defaults to `<repo>/checkpoints/vytals` (auto-created); pass `--checkpoint /writable/dir` if needed |
 | `make db` connection refused | Postgres container not up, or wrong port (must be 5434) |
 | `docker compose` KeyError / ContainerConfig | legacy compose v1 vs Docker 29 — use `docker run` (§4) |
 | `make train-real` seems stuck (~8 min) | normal — windowizing 48 h sparse records; model log prints when training starts |

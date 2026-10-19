@@ -1,15 +1,30 @@
 """Spark Structured Streaming: Kafka vitals.raw -> validate -> window -> features -> ML -> Postgres."""
 from __future__ import annotations
 import argparse
+import os
+from pathlib import Path
 from vytals.config import load_config
 
 VITAL_COLS = ["hr", "spo2", "rr", "temp_c", "sbp", "dbp"]
 
+def default_checkpoint() -> str:
+    """<repo>/checkpoints/vytals, created at runtime; VYTALS_CHECKPOINT env wins."""
+    env = os.environ.get("VYTALS_CHECKPOINT")
+    if env:
+        p = Path(env).expanduser()
+    else:
+        p = Path(__file__).resolve().parents[3] / "checkpoints" / "vytals"
+    p.mkdir(parents=True, exist_ok=True)
+    return p.resolve().as_uri()
+
 def build_spark(app="vytals-stream"):
+    import pyspark
     from pyspark.sql import SparkSession
+    # kafka connector must match the pyspark runtime version (venv has 3.5.x)
+    kafka_pkg = f"org.apache.spark:spark-sql-kafka-0-10_2.12:{pyspark.__version__}"
     return (SparkSession.builder.appName(app)
             .config("spark.sql.streaming.statefulOperator.checkCorrectness.enabled", "false")
-            .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.postgresql:postgresql:42.6.0")
+            .config("spark.jars.packages", f"{kafka_pkg},org.postgresql:postgresql:42.6.0")
             .getOrCreate())
 
 def main():
@@ -17,6 +32,8 @@ def main():
     ap.add_argument("--bootstrap", default=None)
     ap.add_argument("--topic", default=None)
     ap.add_argument("--model", default="models/xgb_risk.json")
+    ap.add_argument("--checkpoint", default=None,
+                    help="checkpoint dir (default <repo>/checkpoints/vytals; env VYTALS_CHECKPOINT overrides)")
     a = ap.parse_args()
     cfg = load_config()
     bootstrap = a.bootstrap or cfg["kafka"]["bootstrap_servers"]
@@ -120,13 +137,21 @@ def main():
             print(f"[batch {batch_id}] pg write failed (ok in dev): {e}")
         print(f"[batch {batch_id}] scored {len(res)} windows; top={res.sort_values('risk_score', ascending=False).head(3).to_dict('records')}")
 
+    ckpt = a.checkpoint
+    if ckpt:
+        p = Path(ckpt).expanduser()
+        p.mkdir(parents=True, exist_ok=True)
+        ckpt = p.resolve().as_uri()
+    else:
+        ckpt = default_checkpoint()
+
     q = (agg.writeStream
          .outputMode("update")
          .foreachBatch(write_batch)
-         .option("checkpointLocation", "file:///home/minhaj/vytal/checkpoints/vytals")
+         .option("checkpointLocation", ckpt)
          .trigger(processingTime="30 seconds")
          .start())
-    print(f"streaming {bootstrap}/{topic} watermark={watermark} window={window}/{slide} -> postgres risk_scores")
+    print(f"streaming {bootstrap}/{topic} watermark={watermark} window={window}/{slide} -> postgres risk_scores (checkpoint {ckpt})")
     q.awaitTermination()
 
 if __name__ == "__main__":

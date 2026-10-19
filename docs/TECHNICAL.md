@@ -183,7 +183,7 @@ Host port map: **5432** system PG · **5433** other project · **5434** vytals P
 
 | Item | Impact | Status |
 |---|---|---|
-| Stream checkpoint path hardcoded (`job.py:126`) | streaming job fails on any non-`/home/minhaj` machine | open — fix before HDFS/streaming e2e |
+| ~~Stream checkpoint path hardcoded (`job.py`)~~ | ~~streaming job fails on any non-`/home/minhaj` machine~~ | resolved 2026-10-19 — repo-relative `<repo>/checkpoints/vytals` (created at runtime), `--checkpoint` flag + `VYTALS_CHECKPOINT` env |
 | Legacy `docker-compose` v1 broken vs Docker 29 | use `docker run` (documented) | workaround in place |
 | PG-backed API read path exists but UI reads replay | live PG scores not yet surfaced in dashboard | open (post-MVP) |
 | Spark jar resolution needs network on first run | cold start slower | documented |
