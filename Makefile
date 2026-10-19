@@ -10,8 +10,14 @@ install:
 sample:
 	$(PY) scripts/make_sample_data.py --patients 12 --minutes 180 --out data/vitals.csv
 
+real-data:
+	PYTHONPATH=src $(PY) scripts/import_physionet2012.py --limit 300 --out data/vitals_real.csv
+
 train:
 	PYTHONPATH=src $(PY) -m vytals.ml.train --input data/vitals.csv --out models/xgb_risk.json
+
+train-real:
+	PYTHONPATH=src $(PY) -m vytals.ml.train --input data/vitals_real.csv --out models/xgb_risk_real.json
 
 predict:
 	PYTHONPATH=src $(PY) -m vytals.ml.predict --input data/vitals.csv --model models/xgb_risk.json

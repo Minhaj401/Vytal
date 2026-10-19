@@ -8,3 +8,7 @@ checkpoints/
 .env
 .DS_Store
 *.tsbuildinfo
+
+# real dataset (regenerable via `make real-data`; raw PhysioNet files are large)
+data/physionet2012/
+data/vitals_real.csv

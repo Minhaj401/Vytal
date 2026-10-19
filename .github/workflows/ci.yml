@@ -19,7 +19,7 @@ jobs:
           pip install -r requirements.txt
           pip install httpx  # API smoke client
       - name: Compile check
-        run: python -m py_compile src/vytals/config.py src/vytals/data/loader.py src/vytals/ingest/producer.py src/vytals/streaming/job.py src/vytals/features/windowed.py src/vytals/ml/risk_model.py src/vytals/ml/train.py src/vytals/ml/predict.py src/vytals/sim/replay.py src/vytals/api/server.py src/vytals/store/db.py
+        run: python -m py_compile src/vytals/config.py src/vytals/data/loader.py src/vytals/ingest/producer.py src/vytals/streaming/job.py src/vytals/features/windowed.py src/vytals/ml/risk_model.py src/vytals/ml/train.py src/vytals/ml/predict.py src/vytals/sim/replay.py src/vytals/api/server.py src/vytals/store/db.py scripts/import_physionet2012.py
       - name: Sample data
         run: python scripts/make_sample_data.py --patients 4 --minutes 30 --out /tmp/vitals_ci.csv
       - name: Loader check
