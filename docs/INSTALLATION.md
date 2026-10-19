@@ -113,7 +113,28 @@ docker rm   vytal-kafka vytal-zk vytal-postgres
 # data persists in the vytal_pgdata volume until: docker volume rm vytal_pgdata
 ```
 
-## 5. Make targets
+## 5. HDFS — distributed storage (single node)
+
+The raw ICU dataset (PhysioNet Challenge 2012) lives in **HDFS** as the project's big-data source of truth; Spark reads it from `hdfs://localhost:9000`. Needs the **JDK 17** from §1 and Hadoop 3.4.x (`hadoop version`). Config sits in `~/hadoop/conf/` (`core-site.xml`, `hdfs-site.xml`, `hadoop-env.sh` — replication 1, NN/DN dirs under `~/hadoop/tmp/dfs`).
+
+```bash
+make hdfs-up        # format (first run only) + start NameNode & DataNode
+make hdfs-upload    # push set-a/ (4000 records) + outcomes + CSVs into HDFS
+make hdfs-status    # daemons + capacity + live datanodes
+make hdfs-down      # stop daemons
+```
+
+Everything goes through `scripts/hdfs.sh` (picks `JAVA_HOME` itself, clears stale pid files, format-once). Resulting layout:
+
+```
+/user/alvi/vytals/raw/physionet2012/set-a/     4000 ICU record files
+/user/alvi/vytals/raw/physionet2012/Outcomes-a.txt
+/user/alvi/vytals/csv/vitals.csv  vitals_real.csv
+```
+
+> **Note:** `make hdfs-upload` copies ~4000 small files — takes a few minutes. If a foreground `put` dies partway ("Filesystem closed"), re-run it; it's idempotent (`put -f`).
+
+## 6. Make targets
 
 | Target | What it does |
 |---|---|
@@ -129,10 +150,14 @@ docker rm   vytal-kafka vytal-zk vytal-postgres
 | `make stream` | Spark Structured Streaming job |
 | `make db` | create Postgres tables (port 5434) |
 | `make infra` | start Postgres container only |
+| `make hdfs-up` | format (once) + start single-node HDFS (§5) |
+| `make hdfs-upload` | push Challenge 2012 + CSVs into HDFS |
+| `make hdfs-status` | HDFS daemons + capacity report |
+| `make hdfs-down` | stop HDFS daemons |
 
 Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/python scripts/import_physionet2012.py --help`.
 
-## 6. Environment variables
+## 7. Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -141,7 +166,7 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | `VYTALS_CONFIG` | `config/default.yaml` | config file path |
 | `NEXT_PUBLIC_API` | same-origin | API base URL for the frontend (cross-origin setups) |
 
-## 7. Ports
+## 8. Ports
 
 | Port | Service |
 |---|---|
@@ -150,11 +175,13 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | 5434 | Vytals Postgres |
 | 9092 | Kafka |
 | 2181 | Zookeeper |
+| 9000 | HDFS NameNode RPC |
+| 9870 | HDFS NameNode web UI |
 
 `Address already in use` → something already listens there: `ss -tlnp | grep 8000` (find PID), or run the API on another port:
 `PYTHONPATH=src .venv/bin/python -m uvicorn vytals.api.server:app --port 8010`
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -168,12 +195,16 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | `make train-real` seems stuck (~8 min) | normal — windowizing 48 h sparse records; model log prints when training starts |
 | Download from physionet.org crawls | use the AWS mirror URL from §3 |
 | Low disk (`df -h`) | HDFS/JDK/jars need ~2 GB; `docker system prune` if Docker is bloated |
+| `make hdfs-up` says no JDK 8/11/17 | install `jdk17-openjdk`; `scripts/hdfs.sh` finds it in `/usr/lib/jvm` |
+| `hdfs dfs` fails / NameNode not running | `make hdfs-status`, then `make hdfs-up`; check `~/hadoop/logs/hadoop-alvi-namenode-*.log` |
+| `put` died with "Filesystem closed" | foreground bulk upload got killed — just re-run `make hdfs-upload` (idempotent, parallel) |
 | Dashboard shows `—` for vitals | missing readings are handled by design (never fabricated) — see FEATURES |
 
-## 9. Uninstall
+## 10. Uninstall
 
 ```bash
 rm -rf .venv web/node_modules web/.next checkpoints
 docker stop vytal-kafka vytal-zk vytal-postgres && docker rm vytal-kafka vytal-zk vytal-postgres
-# HDFS (once set up): stop daemons + rm the data dir per Hadoop docs
+make hdfs-down                       # stop NameNode/DataNode
+rm -rf ~/hadoop/tmp                  # HDFS block + name dirs (per Hadoop docs)
 ```

@@ -43,3 +43,16 @@ infra:
 	docker run -d --name vytal-postgres --restart unless-stopped \
 		-e POSTGRES_DB=vytals -e POSTGRES_USER=vytals -e POSTGRES_PASSWORD=vytals \
 		-p 5434:5432 -v vytal_pgdata:/var/lib/postgresql/data postgres:16
+
+# --- HDFS (single-node, JDK 17, conf in ~/hadoop/conf) ---
+hdfs-up:
+	bash scripts/hdfs.sh up
+
+hdfs-down:
+	bash scripts/hdfs.sh down
+
+hdfs-status:
+	bash scripts/hdfs.sh status
+
+hdfs-upload:
+	bash scripts/hdfs.sh upload

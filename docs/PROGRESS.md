@@ -4,7 +4,7 @@
 > Companion docs: [FEATURES.md](FEATURES.md) · [TECHNICAL.md](TECHNICAL.md) · [INSTALLATION.md](INSTALLATION.md)
 
 **Last updated:** 2026-10-19
-**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS 🔜 in progress · Distributed batch/ML extras ⬜ pending
+**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS ✅ live · Distributed batch/ML extras ⬜ pending
 
 ## 1. Status by area
 
@@ -23,8 +23,8 @@
 | 11 | CI (backend + frontend) | ✅ Done | GitHub Actions on push/PR |
 | 12 | **Real data (PhysioNet Challenge 2012)** | ✅ Done | importer, `make real-data`, 300 patients, validated e2e (2026-10-19) |
 | 13 | **Real-data model** | ✅ Done | `models/xgb_risk_real.json` — MAE 1.62 / R² 0.963 |
-| 14 | **HDFS** | 🚧 In progress | Hadoop 3.4.3 present; single-node cluster + data upload next |
-| 15 | Streaming e2e on real data (Kafka→Spark→PG) | ⬜ Pending | after HDFS + checkpoint fix + JDK 17 |
+| 14 | **HDFS** | ✅ Done | single-node Hadoop 3.4.3 on JDK 17; Challenge 2012 (4000 records) + outcomes + CSVs uploaded; Spark reads HDFS verified |
+| 15 | Streaming e2e on real data (Kafka→Spark→PG) | ⬜ Pending | after checkpoint fix (JDK 17 ✅, HDFS ✅) |
 | 16 | Hive / MapReduce batch layer | ⬜ Pending | abstract objective #4 |
 | 17 | Risk scores → HBase (or equivalent) | ⬜ Pending | abstract objective #15 |
 | 18 | SHAP explainability | ⬜ Pending | abstract objective #14 |
@@ -42,6 +42,7 @@
 | 2026-10-10 | Experiment: backend ported to Go (loader/features/GBM/API/producer/worker) |
 | 2026-10-13 | Go port **reverted** — Python backend is canonical |
 | 2026-10-19 | **Bug fix:** `/api/analysis` NaN → 500 (starlette `allow_nan=False`) — `json_safe()` guard; **bug fix:** `windowize` hang on 48 h sparse records (floor+groupby instead of Grouper); **real data:** Challenge 2012 downloaded (AWS mirror), importer written, `data/vitals_real.csv` (300 richest patients), `make train-real` → R² 0.963, e2e validation on real data all-green; docs set added |
+| 2026-10-19 (pm) | **HDFS live:** JDK 17 installed (`jdk17-openjdk`), `JAVA_HOME` flipped in `~/.bashrc` + `~/hadoop/conf/hadoop-env.sh`; single-node cluster (NameNode+DataNode, Hadoop 3.4.3, replication 1) started on existing fsimage; **4000 Challenge 2012 records + Outcomes-a + set-a.zip + both pipeline CSVs uploaded** to `/user/alvi/vytals/{raw,csv}` (35.9 MB); Spark↔HDFS integration verified (PySpark reads HDFS, 28 285 rows / 300 patients match local); `scripts/hdfs.sh` + `make hdfs-up/down/status/upload` |
 
 ## 3. Recent session detail (2026-10-19)
 
@@ -55,32 +56,40 @@
 - ✅ Makefile targets `real-data` / `train-real`; CI compile list includes importer; gitignore for raw+derived real data; README real-data section.
 - ✅ Docs: FEATURES / TECHNICAL / PROGRESS / INSTALLATION.
 
-## 4. Next up (ordered)
+## 4. Recent session detail (2026-10-19 pm) — HDFS
 
-1. **HDFS single-node** (in progress): pick JDK (17 for Hadoop+Spark compat), format+start NameNode/DataNode, `hdfs dfs` basics, create project dirs, upload Challenge 2012 raw records as the "big data" source of truth.
-2. **Checkpoint-path fix** in `streaming/job.py` (repo-relative, created at runtime).
-3. **Streaming e2e on real data**: Kafka+PG via `docker run` → `make producer` (real CSV) → `make stream` → verify `risk_scores` rows → API/PG read path.
-4. **Outcome validation**: correlate replay/PG risk scores vs `Outcomes-a.txt` (death/LOS/SAPS) — a real "does the score mean anything" check.
-5. **Hive** external table over HDFS data + 2–3 descriptive SQL queries (abnormal-event frequency etc.).
-6. **SHAP** on the trained booster (global feature importance + per-patient explanation).
-7. **Model comparison**: LR / RF / XGBoost / IsolationForest with patient-wise CV table.
-8. **Benchmark**: single-machine (pandas) vs distributed (Spark) on the same batch — timing table for the report.
-9. **HBase** (or documented alternative) for risk-score serving; wire dashboard PG/live read path.
+- ✅ Installed `jdk17-openjdk` (17.0.20.1); switched `JAVA_HOME` from Java 21 → 17 in `~/.bashrc:27` and `~/hadoop/conf/hadoop-env.sh:435` (Spark 3.5 + Hadoop 3.4 both need 8/11/17).
+- ✅ Started the existing single-node cluster (fsimage from 2026-10-06 preserved — no reformat needed): NameNode + DataNode on Java 17, `dfsadmin -report` → 1 live datanode, safe mode OFF.
+- ✅ Uploaded the big-data source of truth: `set-a/` (4000 ICU records, parallel `put -t 8` in background — the 5-min tool timeout killed the foreground attempt), `Outcomes-a.txt`, `set-a.zip`, `vitals.csv`, `vitals_real.csv`.
+- ✅ Spark↔HDFS integration check: PySpark 3.5.9 `local[2]` session → `hdfs://localhost:9000` reads a raw record (273 rows) and `vitals_real.csv` (28 285 rows / 300 patients — identical to local).
+- ✅ `scripts/hdfs.sh` (up/down/status/upload/tree, self-picking JAVA_HOME, format-once, stale-pid cleanup) + Makefile targets `hdfs-up/down/status/upload`; TECHNICAL §14.
 
-## 5. Known issues / blockers
+## 5. Next up (ordered)
+
+1. **Checkpoint-path fix** in `streaming/job.py` (repo-relative, created at runtime) — last blocker before streaming e2e.
+2. **Streaming e2e on real data**: Kafka+PG via `docker run` → `make producer` (real CSV) → `make stream` → verify `risk_scores` rows → API/PG read path.
+3. **Outcome validation**: correlate replay/PG risk scores vs `Outcomes-a.txt` (death/LOS/SAPS) — a real "does the score mean anything" check.
+4. **Hive** external table over the HDFS data (`/user/alvi/vytals/raw/physionet2012/set-a` + outcomes) + 2–3 descriptive SQL queries (abnormal-event frequency etc.).
+5. **SHAP** on the trained booster (global feature importance + per-patient explanation).
+6. **Model comparison**: LR / RF / XGBoost / IsolationForest with patient-wise CV table.
+7. **Benchmark**: single-machine (pandas) vs distributed (Spark) on the same batch — timing table for the report.
+8. **HBase** (or documented alternative) for risk-score serving; wire dashboard PG/live read path.
+
+## 6. Known issues / blockers
 
 | Severity | Item | Notes |
 |---|---|---|
-| 🔴 High | `streaming/job.py:126` checkpoint hardcoded `/home/minhaj/vytal/...` | must be fixed before any streaming rerun |
-| 🔴 High | Host had Java 21 only — Spark 3.5 needs Java 8/11/17 | JDK 17 install planned this session (space freed) |
+| 🔴 High | `streaming/job.py:126` checkpoint hardcoded `/home/minhaj/vytal/...` | must be fixed before any streaming rerun — next task |
 | 🟡 Medium | `docker-compose` v1 broken vs Docker 29 | documented `docker run` workaround (README/Makefile `infra`) |
 | 🟡 Medium | Dashboard reads replay, not PG | PG read path exists but unwired |
-| 🟡 Medium | Disk pressure on host (was 99% full) | HDFS + JDK need space — user freed some |
+| 🟡 Medium | Disk pressure on host (was 99% full) | now ~29 GB free — enough for HDFS + JDK 17 + jars |
+| 🟡 Medium | Foreground `hdfs dfs -put` of 4000 files died mid-run ("Filesystem closed") | worked as background job with `-t 8`; treat bulk uploads as long-running jobs |
 | 🟢 Low | First Spark run resolves jars from Maven (network) | one-time delay |
 | 🟢 Low | `make train-real` ~8 min | one-time; windowize cost on 48 h sparse data |
 | 🟢 Low | Untracked root `package-lock.json` | stray artifact from an npm run at repo root — candidate for deletion |
+| ✅ Resolved | Host had Java 21 only — Spark 3.5 needs 8/11/17 | JDK 17 installed 2026-10-19, `JAVA_HOME` pinned in `.bashrc` + `hadoop-env.sh` |
 
-## 6. Verification log (last session)
+## 7. Verification log
 
 | Check | Result |
 |---|---|
@@ -91,3 +100,9 @@
 | Real replay init + step | ✅ 0.4 s, NaN → `None` |
 | API on real data (6 endpoints incl. advance) | ✅ all 200, zero log errors |
 | `/api/analysis` NaN regression (15× across loops) | ✅ all 200 after fix |
+| JDK 17 install + JAVA_HOME flip | ✅ `java -version` → 17.0.20.1; daemons on `java-17-openjdk` |
+| HDFS cluster up | ✅ 1 live datanode, safe mode OFF, 28.4 GB remaining |
+| HDFS data upload | ✅ 4000/4000 records + outcomes + zip + 2 CSVs = 35.9 MB |
+| `hdfs dfs -cat` raw record | ✅ chart lines returned |
+| Spark read from HDFS | ✅ PySpark 3.5.9: raw record 273 rows; `vitals_real.csv` 28 285 rows / 300 patients (matches local) |
+| `make hdfs-up` / `hdfs-status` / `tree` | ✅ idempotent (detected running daemons) |

@@ -8,6 +8,7 @@
 ```
 Patient vitals
     ↓  (CSV / JSONL replay, key=patient_id, acks=all)
+    ↓  raw ICU records also stored in HDFS — hdfs://localhost:9000/user/alvi/vytals/
 Kafka topic: vitals.raw  (3 partitions)
     ↓
 Spark Structured Streaming
@@ -29,6 +30,7 @@ FastAPI (:8000)  ←→  Next.js dashboard (:3000)
 | Layer | Path | Role |
 |---|---|---|
 | Source | any CSV/JSONL with vitals cols | `scripts/make_sample_data.py` makes a demo dataset with stable/degrading/critical archetypes; **real data**: `scripts/import_physionet2012.py` imports PhysioNet Challenge 2012 ICU records → `data/vitals_real.csv` |
+| Storage | HDFS (single node, Hadoop 3.4.3, JDK 17) | raw Challenge 2012 records + outcomes + pipeline CSVs under `hdfs://localhost:9000/user/alvi/vytals/` — the big-data source of truth; `make hdfs-up` / `hdfs-upload` (`scripts/hdfs.sh`) |
 | Loader | `src/vytals/data/loader.py` | CSV/JSONL → canonical schema (`patient_id,event_time,seq,hr,spo2,rr,temp_c,sbp,dbp`); aliases, range clamp (out-of-range→NA, never fabricate), missing allowed |
 | Producer | `src/vytals/ingest/producer.py` | replay into `vitals.raw`, Kafka key = `patient_id`, `acks=all`, `--speed 1/60/0` |
 | Streaming | `src/vytals/streaming/job.py` | Spark Structured Streaming: parse → validate → watermark 2m → window 5m/1m → features → ML → PG |
@@ -127,6 +129,16 @@ make producer    # CSV → vitals.raw @ 60×
 make stream      # Spark → risk_scores
 make api         # API + UI, now backed by PG
 ```
+
+### C. HDFS — distributed storage of the raw dataset
+
+```bash
+make hdfs-up        # format (first run) + start NameNode/DataNode on :9000
+make hdfs-upload    # 4000 Challenge 2012 records + outcomes + CSVs → HDFS
+make hdfs-status    # cluster report
+```
+
+Spark reads the raw data straight from `hdfs://localhost:9000/user/alvi/vytals/…`; details in [TECHNICAL §14](docs/TECHNICAL.md).
 
 ### CI/CD
 

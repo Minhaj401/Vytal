@@ -189,4 +189,25 @@ Host port map: **5432** system PG · **5433** other project · **5434** vytals P
 | Spark jar resolution needs network on first run | cold start slower | documented |
 | `windowize` ~8 min on real set (28k windows) | one-time training cost | accepted |
 | SaO₂/RR sparse in Challenge 2012 | some UI gauges show `—` | dataset property, documented |
-| Java 21-only host | Spark 3.5 needs Java 8/11/17 → install JDK 17 for streaming | being resolved |
+| Java 21-only host | Spark 3.5 needs Java 8/11/17 → install JDK 17 for streaming | resolved 2026-10-19 (jdk17-openjdk; `JAVA_HOME` in `~/.bashrc` + `~/hadoop/conf/hadoop-env.sh`) |
+
+## 14. Distributed storage (HDFS)
+
+Single-node HDFS (Hadoop **3.4.3**, JDK **17**, replication **1**) is the raw-data layer: the PhysioNet Challenge 2012 ICU records live in HDFS as the "big data" source of truth, and Spark reads them straight off `hdfs://localhost:9000`.
+
+- **Config:** `~/hadoop/conf/` — `core-site.xml` (`fs.defaultFS=hdfs://localhost:9000`), `hdfs-site.xml` (NN/DN dirs under `~/hadoop/tmp/dfs`, replication 1, heap-capped daemons).
+- **Lifecycle:** `make hdfs-up` (format-once + start NameNode/DataNode) · `make hdfs-down` · `make hdfs-status` · `make hdfs-upload` → all via `scripts/hdfs.sh` (also picks `JAVA_HOME` itself).
+- **Layout:**
+
+  ```
+  /user/alvi/vytals/
+    raw/physionet2012/set-a/        4000 ICU record files (long format, 35.9 MB)
+    raw/physionet2012/Outcomes-a.txt  real outcomes (SAPS-I, SOFA, LOS, in-hospital death)
+    raw/physionet2012/set-a.zip       original archive (provenance)
+    csv/vitals.csv                    synthetic pipeline CSV (demo)
+    csv/vitals_real.csv               imported real data — 28 285 rows / 300 patients
+  ```
+
+- **Verified (2026-10-19):** `hdfs dfsadmin -report` → 1 live datanode; `hdfs dfs -cat` on a raw record returns chart lines; PySpark `local[2]` session reading `hdfs://localhost:9000/user/alvi/vytals/csv/vitals_real.csv` → 28 285 rows / 300 patients (matches local counts), and reads a raw record file (273 rows).
+- **Why single-node:** the course objective is the HDFS storage layer + how the pipeline talks to it; one NameNode/DataNode on the lab machine demonstrates the API (write-once blocks, replication, `hdfs dfs`) without a cluster to babysit. Scaling out is config + more DataNodes, not code.
+- **Small-file note:** 4000 × ~9 KB files is the realistic ICU shape (one file per patient) but HDFS prefers fewer/larger blocks — `put -t 8` parallelizes the upload; if this ever becomes a bottleneck, concatenate per-patient files into sharded partitions (Hive/Spark can read either).
