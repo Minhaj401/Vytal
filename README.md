@@ -1,5 +1,7 @@
 # Vytals — Real-Time Vital Risk Scoring
 
+> 📖 **Docs:** [Features (non-technical)](docs/FEATURES.md) · [Technical](docs/TECHNICAL.md) · [Progress](docs/PROGRESS.md) · [Installation (Linux/macOS)](docs/INSTALLATION.md)
+
 
 **Vytals** watches patient vitals (HR, SpO₂, RR, temp, BP) in real time, scores each patient's risk on a single 0–100 number, and streams it to a live dashboard. Built for the course project: *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data.*
 
@@ -26,7 +28,7 @@ FastAPI (:8000)  ←→  Next.js dashboard (:3000)
 
 | Layer | Path | Role |
 |---|---|---|
-| Source | any CSV/JSONL with vitals cols | `scripts/make_sample_data.py` makes a demo dataset with stable/degrading/critical archetypes |
+| Source | any CSV/JSONL with vitals cols | `scripts/make_sample_data.py` makes a demo dataset with stable/degrading/critical archetypes; **real data**: `scripts/import_physionet2012.py` imports PhysioNet Challenge 2012 ICU records → `data/vitals_real.csv` |
 | Loader | `src/vytals/data/loader.py` | CSV/JSONL → canonical schema (`patient_id,event_time,seq,hr,spo2,rr,temp_c,sbp,dbp`); aliases, range clamp (out-of-range→NA, never fabricate), missing allowed |
 | Producer | `src/vytals/ingest/producer.py` | replay into `vitals.raw`, Kafka key = `patient_id`, `acks=all`, `--speed 1/60/0` |
 | Streaming | `src/vytals/streaming/job.py` | Spark Structured Streaming: parse → validate → watermark 2m → window 5m/1m → features → ML → PG |
@@ -43,7 +45,7 @@ FastAPI (:8000)  ←→  Next.js dashboard (:3000)
 The project does **not** ship a PhysioNet credentialed dataset (needs access request). Evaluation/demo data is **synthetic**:
 
 ```bash
-make sample   # writes data/vitals.csv — 12 patients, 240 min, 30s cadence, 3 archetypes
+make sample   # writes data/vitals.csv — 12 patients, 180 min, 30s cadence, 3 archetypes
 ```
 
 | Archetype | Behavior |
@@ -53,6 +55,24 @@ make sample   # writes data/vitals.csv — 12 patients, 240 min, 30s cadence, 3 
 | critical (~10%) | sustained abnormal |
 
 Point the loader/producer at any real export instead via `--input`. Canonical columns must include patient id, timestamp, and the 6 vitals (missing ok).
+
+### Real data: PhysioNet Challenge 2012 (open access)
+
+The abstract's MIMIC-III plan is **credentialed** (PhysioNet account + CITI training + DUA), so it can't be pulled automatically. The pipeline instead uses the **Challenge 2012** ICU dataset — real monitor/charted vitals for 4000 patients × 48 h, open access, no credentialing:
+
+```bash
+make real-data   # imports 300 richest qualifying records -> data/vitals_real.csv
+make train-real  # trains -> models/xgb_risk_real.json
+```
+
+- Download once into `data/physionet2012/` (raw records kept for HDFS/batch steps):
+  `curl -L -o data/physionet2012/set-a.zip https://physionet-open.s3.amazonaws.com/challenge-2012/1.0.0/set-a.zip && unzip -d data/physionet2012 data/physionet2012/set-a.zip`
+- Mapping (`scripts/import_physionet2012.py`): HR→`hr`, RespRate→`rr`, Temp→`temp_c`, NISysABP/NIDiasABP→`sbp`/`dbp` (invasive SysABP/DiasABP fallback), **SaO2→`spo2`** — the dataset has no SpO₂ channel; SaO₂ is arterial O₂ saturation, same clinical meaning for hypoxemia.
+- Charting is sparse by design (real ICU documentation): HR/BP ~91% present, temp ~60%, SaO₂/RR intermittent — missing stays missing, `coverage`/`low_quality` features flag it.
+- `data/physionet2012/Outcomes-a.txt` has real ICU outcomes (SAPS-I, SOFA, LOS, in-hospital death) — kept for model validation against actual mortality.
+- Measured on real data (`make train-real`, patient-wise split): **MAE 1.62, R² 0.963**; top features `hr_max`, `sbp_min`, `hr_mean`, `dbp_min` — sane physiology. Windowize on sparse 48 h records takes a few minutes (one-time).
+- Run the demo on real data:
+  `VYTALS_DATA=data/vitals_real.csv VYTALS_MODEL=models/xgb_risk_real.json make api`
 
 ## Where the model comes from
 
@@ -75,6 +95,13 @@ make train    # → models/xgb_risk.json
 make install sample train   # venv + sample CSV + train model
 make api                    # http://localhost:8000  (replay engine, 2s ticks)
 npm --prefix web run dev    # http://localhost:3000
+```
+
+Same demo on **real ICU data** (see [Real data](#real-data-physionet-challenge-2012-open-access)):
+
+```bash
+make real-data train-real
+VYTALS_DATA=data/vitals_real.csv VYTALS_MODEL=models/xgb_risk_real.json make api
 ```
 
 ### B. Full streaming — Kafka + Spark + Postgres
