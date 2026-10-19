@@ -1,6 +1,6 @@
 """FastAPI backend for Next.js dashboard. Serves live replay + history + analysis."""
 from __future__ import annotations
-import os, threading
+import math, os, threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
@@ -11,6 +11,21 @@ from vytals.config import load_config
 from vytals.sim.replay import Replay
 
 ROOT = Path(__file__).resolve().parents[3]  # .../vytal
+
+def json_safe(obj):
+    """NaN/Inf/numpy -> None so starlette's json.dumps(allow_nan=False) never 500s."""
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if hasattr(obj, "item"):
+        try:
+            return json_safe(obj.item())
+        except Exception:
+            return None
+    return obj
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -107,14 +122,17 @@ def analysis():
     import pandas as pd
     df = pd.DataFrame(lives)
     counts = df.risk_level.value_counts().to_dict()
-    return {
+    # to_dict("records") re-introduces NaN for missing vitals — sanitize before JSON
+    crit = df.sort_values("risk_score", ascending=False).head(5)[
+        ["patient_id", "risk_score", "risk_level", "hr", "spo2"]].to_dict("records")
+    return json_safe({
         "counts": counts,
         "avg_risk": round(float(df.risk_score.mean()), 1),
         "max_risk": round(float(df.risk_score.max()), 1),
         "n_patients": len(df),
-        "critical": df.sort_values("risk_score", ascending=False).head(5)[["patient_id", "risk_score", "risk_level", "hr", "spo2"]].to_dict("records"),
+        "critical": crit,
         "dist": counts,
-    }
+    })
 
 @app.post("/api/advance")
 def advance(steps: int = Query(default=10, ge=1, le=200)):

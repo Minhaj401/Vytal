@@ -16,9 +16,11 @@ def windowize(df: pd.DataFrame, window: str = "5min") -> pd.DataFrame:
     feats = []
     for pid, g in d.groupby("patient_id"):
         g = g.sort_values("event_time")
-        for _, w in g.groupby(pd.Grouper(key="event_time", freq=window)):
-            if w.empty:
-                continue
+        # floor+groupby only visits bins that have rows. pd.Grouper materializes the
+        # full min..max range instead — 48h sparse ICU records -> ~576 empty slices
+        # per patient, which hangs training on real data.
+        g = g.assign(_w=g["event_time"].dt.floor(window))
+        for _, w in g.groupby("_w"):
             f = build_features(w.assign(patient_id=pid))
             feats.append(f)
     return pd.concat(feats, ignore_index=True) if feats else pd.DataFrame()
