@@ -3,6 +3,8 @@
 
 **Vytals** watches patient vitals (HR, SpO₂, RR, temp, BP) in real time, scores each patient's risk on a single 0–100 number, and streams it to a live dashboard. Built for the course project: *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data.*
 
+📄 **Project report:** [`docs/REPORT.md`](docs/REPORT.md) · **Architecture diagram:** [`docs/architecture.png`](docs/architecture.png)
+
 ```
 Patient vitals
     ↓  (CSV / JSONL replay, key=patient_id, acks=all)
