@@ -26,6 +26,10 @@ HDFS — durability lake                    PostgreSQL — serving
 
 ## Architecture
 
+![Vytals full-stack architecture](docs/architecture.png)
+
+> Full-size diagram: [`docs/architecture.png`](docs/architecture.png) — source: [`docs/architecture.html`](docs/architecture.html) (render it in a browser and screenshot, or regenerate with any headless browser).
+
 | Layer | Path | Role |
 |---|---|---|
 | Source | any CSV/JSONL with vitals cols | `scripts/make_sample_data.py` makes a demo dataset with stable/degrading/critical archetypes; canonical CSVs written by this repo also carry recomputed `news2_score,qsofa_score` columns |

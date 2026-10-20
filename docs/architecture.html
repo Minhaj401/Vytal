@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vytals — Full-Stack Architecture</title>
+<style>
+  :root{
+    --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --bg:#f8fafc; --card:#ffffff;
+    --src:#e0f2fe; --src-b:#0284c7;
+    --ing:#ede9fe; --ing-b:#7c3aed;
+    --str:#fef3c7; --str-b:#d97706;
+    --sink:#dcfce7; --sink-b:#16a34a;
+    --srv:#ffe4e6; --srv-b:#e11d48;
+    --side:#f1f5f9; --side-b:#64748b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{width:1560px;margin:0 auto;padding:28px 32px 34px}
+  h1{font-size:25px;margin:0 0 2px;letter-spacing:-.4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 22px}
+  h2{font-size:13px;letter-spacing:.9px;text-transform:uppercase;color:var(--muted);
+     margin:0 0 10px;font-weight:700}
+
+  /* ---- pipeline rows ---- */
+  .lane{display:flex;align-items:stretch;gap:0;margin-bottom:14px}
+  .stage{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:8px}
+  .arrowcol{flex:0 0 34px;display:flex;align-items:center;justify-content:center;
+            color:var(--line);font-size:24px;font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;
+        padding:11px 13px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+  .card h3{font-size:13.5px;margin:0 0 3px;letter-spacing:-.1px}
+  .card .tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.5px;
+             text-transform:uppercase;padding:1.5px 6px;border-radius:5px;margin-bottom:5px}
+  .card ul{margin:6px 0 0;padding-left:15px;color:var(--muted);font-size:12px}
+  .card li{margin:1.5px 0}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+  .port{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--muted)}
+  .t-src{background:var(--src);color:var(--src-b);border-bottom:3px solid var(--src-b)}
+  .t-ing{background:var(--ing);color:var(--ing-b);border-bottom:3px solid var(--ing-b)}
+  .t-str{background:var(--str);color:var(--str-b);border-bottom:3px solid var(--str-b)}
+  .t-sink{background:var(--sink);color:var(--sink-b);border-bottom:3px solid var(--sink-b)}
+  .t-srv{background:var(--srv);color:var(--srv-b);border-bottom:3px solid var(--srv-b)}
+  .t-side{background:var(--side);color:var(--side-b);border-bottom:3px solid var(--side-b)}
+  .group{background:var(--card);border:1px dashed var(--line);border-radius:13px;padding:12px}
+  .group > .glabel{font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;
+                   color:var(--muted);margin-bottom:9px}
+  .inner{display:flex;gap:9px;align-items:stretch}
+  .inner > div{flex:1}
+  .tiny{font-size:11.5px;color:var(--muted)}
+
+  /* ---- connectors band ---- */
+  .flows{margin:4px 0 16px;padding:12px 14px;background:#fff;border:1px solid var(--line);
+         border-radius:11px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px 18px}
+  .flow{font-size:12px;color:var(--muted)}
+  .flow b{color:var(--ink);font-weight:650}
+
+  /* ---- bottom: 3 panels ---- */
+  .bottom{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;margin-top:6px}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{text-align:left;padding:4.5px 7px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  td code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px;font-size:11.5px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Vytals — Real-Time Vital Risk Scoring</h1>
+  <p class="sub">Kafka → Spark Structured Streaming → HDFS lake + Postgres serving → FastAPI → Next.js dashboard. Every box below is a real module in the repo and a real service in <span class="mono">docker-compose.yml</span>.</p>
+
+  <!-- ================= ROW 1: the data path ================= -->
+  <div class="lane">
+    <!-- sources -->
+    <div class="stage" style="flex:0 0 235px">
+      <div class="card">
+        <span class="tag t-src">Sources</span>
+        <h3>Vital-sign datasets</h3>
+        <ul>
+          <li><span class="mono">data/vitals.csv</span> — synthetic ICU series (12 patients, 4 h)</li>
+          <li>PhysioNet/CinC 2012 — 4 000 real ICU stays (ODC-BY)</li>
+          <li>HLT-009 — 25 synthetic episodes, NEWS2/qSOFA labels (CC-BY-NC-4.0)</li>
+        </ul>
+        <div class="port">scripts/import_physionet2012.py · import_hlt009.py</div>
+      </div>
+    </div>
+    <div class="arrowcol">→</div>
+
+    <!-- ingest -->
+    <div class="stage" style="flex:0 0 235px">
+      <div class="card">
+        <span class="tag t-ing">Ingest</span>
+        <h3>Producer</h3>
+        <div class="mono">vytals.ingest.producer</div>
+        <ul>
+          <li>key = <span class="mono">patient_id</span> (per-patient ordering)</li>
+          <li><span class="mono">acks=all</span>, retries, fail-fast if Kafka down</li>
+          <li><span class="mono">--speed 60</span> (60× wall clock), <span class="mono">--loop --shift-loop</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="arrowcol">→</div>
+
+    <!-- kafka -->
+    <div class="stage" style="flex:0 0 235px">
+      <div class="card">
+        <span class="tag t-ing">Buffer</span>
+        <h3>Kafka topic <span class="mono">vitals.raw</span></h3>
+        <ul>
+          <li>3 partitions (kafka-init), replication 1</li>
+          <li>PLAINTEXT · host <span class="mono">:9092</span> · in-net <span class="mono">kafka:29092</span></li>
+          <li>zookeeper :2181</li>
+        </ul>
+        <div class="port">cp-kafka 7.5.0</div>
+      </div>
+    </div>
+    <div class="arrowcol">→</div>
+
+    <!-- spark -->
+    <div class="stage" style="flex:0 0 470px">
+      <div class="group" style="height:100%">
+        <div class="glabel">Spark standalone cluster — master :7077 / :8080 · worker :8081</div>
+        <div class="inner" style="margin-bottom:9px">
+          <div class="card" style="border-color:#f0c674">
+            <span class="tag t-str">Query A · bronze</span>
+            <h3>Validated raw vitals</h3>
+            <ul>
+              <li>parse → validate → event-time + watermark 2 min</li>
+              <li>dedupe (patient_id, event_time, seq)</li>
+              <li>append parquet, partition by <span class="mono">event_date</span></li>
+            </ul>
+          </div>
+          <div class="card" style="border-color:#f0c674">
+            <span class="tag t-str">Query B · scoring</span>
+            <h3>Windowed risk scoring</h3>
+            <ul>
+              <li>window 5 min / slide 1 min, per patient</li>
+              <li><span class="mono">build_features()</span> (shared with training)</li>
+              <li>XGBoost → p_risk, risk_score 0–100, LOW/MODERATE/HIGH/CRITICAL</li>
+              <li>append mode → each window scored once</li>
+            </ul>
+          </div>
+        </div>
+        <div class="card">
+          <span class="tag t-side">Driver · vytals.streaming.job</span>
+          <h3>foreachBatch on the driver</h3>
+          <div class="tiny">Loads the model once, scores each closed window, fans out to both sinks. Checkpoints live on HDFS, so a container restart resumes the stream.</div>
+        </div>
+      </div>
+    </div>
+    <div class="arrowcol">→</div>
+
+    <!-- sinks -->
+    <div class="stage" style="flex:0 0 250px">
+      <div class="card" style="margin-bottom:9px">
+        <span class="tag t-sink">Durability lake</span>
+        <h3>HDFS</h3>
+        <ul>
+          <li><span class="mono">/vytals/bronze/vitals</span> — raw parquet</li>
+          <li><span class="mono">/vytals/silver/risk_scores</span> — scored windows</li>
+          <li><span class="mono">/vytals/checkpoints</span> — stream state</li>
+        </ul>
+        <div class="port">namenode :8020 · UI :9870 · 1 datanode, repl 1</div>
+      </div>
+      <div class="card">
+        <span class="tag t-sink">Serving store</span>
+        <h3>Postgres</h3>
+        <ul>
+          <li><span class="mono">risk_scores</span> (PK patient_id+window_end, vitals means)</li>
+          <li><span class="mono">vitals_raw</span></li>
+        </ul>
+        <div class="port">postgres:16 · host :5434</div>
+      </div>
+    </div>
+    <div class="arrowcol">→</div>
+
+    <!-- serving -->
+    <div class="stage" style="flex:0 0 250px">
+      <div class="card" style="margin-bottom:9px">
+        <span class="tag t-srv">API</span>
+        <h3>FastAPI :8000</h3>
+        <ul>
+          <li><span class="mono">/api/health</span> <span class="mono">/api/patients</span></li>
+          <li><span class="mono">/api/patients/{id}/live</span> <span class="mono">/history</span></li>
+          <li><span class="mono">/api/analysis</span> <span class="mono">POST /api/advance</span></li>
+        </ul>
+        <div class="port">VYTALS_SOURCE=postgres | replay</div>
+      </div>
+      <div class="card">
+        <span class="tag t-srv">UI</span>
+        <h3>Next.js dashboard :3000</h3>
+        <ul>
+          <li>ranking, risk distribution, critical list</li>
+          <li>live gauges, HR trace, SpO₂ + risk overlay, raw stream</li>
+          <li>2 s auto-refresh · mobile-safe grid</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= ROW 2: flows + side paths ================= -->
+  <div class="flows">
+    <div class="flow"><b>Write path</b> — CSV → Kafka → Spark → HDFS + Postgres → API → browser</div>
+    <div class="flow"><b>Read path</b> — Postgres (latest window per patient) → JSON contract → Next proxy</div>
+    <div class="flow"><b>Model path</b> — <span class="mono">make train</span> / <span class="mono">train-hlt009</span> → <span class="mono">models/xgb_risk.json</span> → driver + replay</div>
+    <div class="flow"><b>Checkpoint path</b> — Kafka offsets + window state → <span class="mono">/vytals/checkpoints</span> (survive restarts)</div>
+  </div>
+
+  <div class="bottom">
+    <div class="card">
+      <span class="tag t-side">Service map · docker compose</span>
+      <table>
+        <tr><th>Service</th><th>Image</th><th>Ports</th><th>Role</th></tr>
+        <tr><td>zookeeper</td><td>cp-zookeeper 7.5.0</td><td>2181</td><td>Kafka quorum</td></tr>
+        <tr><td>kafka</td><td>cp-kafka 7.5.0</td><td>9092</td><td>event bus</td></tr>
+        <tr><td>kafka-init</td><td>cp-kafka 7.5.0</td><td>—</td><td>creates vitals.raw (3 parts)</td></tr>
+        <tr><td>postgres</td><td>postgres:16</td><td>5434</td><td>serving DB</td></tr>
+        <tr><td>namenode</td><td>apache/hadoop:3</td><td>8020 / 9870</td><td>HDFS metadata</td></tr>
+        <tr><td>datanode</td><td>apache/hadoop:3</td><td>—</td><td>HDFS blocks</td></tr>
+        <tr><td>hdfs-init</td><td>apache/hadoop:3</td><td>—</td><td>safe mode + lake dirs</td></tr>
+        <tr><td>spark-master</td><td>Dockerfile.spark</td><td>7077 / 8080</td><td>standalone master</td></tr>
+        <tr><td>spark-worker</td><td>Dockerfile.spark</td><td>8081</td><td>executors</td></tr>
+        <tr><td>spark-submit</td><td>Dockerfile.spark</td><td>4040</td><td>streaming driver</td></tr>
+        <tr><td>producer</td><td>vytals-api</td><td>—</td><td>CSV → Kafka</td></tr>
+        <tr><td>api</td><td>vytals-api</td><td>8000</td><td>FastAPI (postgres source)</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <span class="tag t-side">Data contract</span>
+      <table>
+        <tr><th>Where</th><th>Shape</th></tr>
+        <tr><td>Kafka value</td><td><code>{patient_id, event_time, seq, hr, spo2, rr, temp_c, sbp, dbp}</code></td></tr>
+        <tr><td>risk_scores row</td><td><code>patient_id, window_start, window_end, p_risk, risk_score, risk_level, hr…dbp</code></td></tr>
+        <tr><td><code>/api/patients</code></td><td><code>{patient_id, risk_score, risk_level, hr, spo2, event_time}</code> — sorted by risk desc</td></tr>
+        <tr><td><code>/live</code>, <code>/history</code></td><td>LivePoint: <code>event_time, seq, p_risk, risk_score, risk_level, hr, spo2, rr, temp_c, sbp, dbp</code></td></tr>
+        <tr><td><code>/api/analysis</code></td><td><code>counts, avg_risk, max_risk, n_patients, critical[]</code></td></tr>
+      </table>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--src)"></i>sources</span>
+        <span><i class="sw" style="background:var(--ing)"></i>ingest/buffer</span>
+        <span><i class="sw" style="background:var(--str)"></i>stream processing</span>
+        <span><i class="sw" style="background:var(--sink)"></i>storage</span>
+        <span><i class="sw" style="background:var(--srv)"></i>serving</span>
+        <span><i class="sw" style="background:var(--side)"></i>side paths</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag t-side">Side paths &amp; operations</span>
+      <table>
+        <tr><th>Path</th><th>What it is</th></tr>
+        <tr><td>Replay engine</td><td><code>vytals.sim.replay</code> — in-memory CSV replay; <code>VYTALS_SOURCE=replay</code> for dev/CI with zero infra</td></tr>
+        <tr><td>CI</td><td>backend (unit tests + smoke), frontend (lint/build), docker (image + <code>compose config</code>)</td></tr>
+        <tr><td>Makefile</td><td><code>up</code> <code>down</code> <code>pipeline</code> <code>hdfs-ls</code> <code>submit</code> <code>demo</code> <code>test</code> <code>train</code></td></tr>
+        <tr><td>Config</td><td><code>config/default.yaml</code> (host) · <code>config/docker.yaml</code> (service DNS, HDFS, 10 s trigger)</td></tr>
+        <tr><td>Known limits</td><td>no HDFS compaction, no batch read-back, foreachBatch not transactional, late data dropped by watermark</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>
