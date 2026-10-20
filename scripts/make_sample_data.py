@@ -1,8 +1,15 @@
 """Generate realistic synthetic vitals CSV for demo/replay/training."""
 import argparse
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from vytals.data.clinicalscore import news2, qsofa  # noqa: E402
+
 
 def gen(patients=12, minutes=180, freq_s=30, seed=42):
     rng = np.random.default_rng(seed)
@@ -37,8 +44,10 @@ def gen(patients=12, minutes=180, freq_s=30, seed=42):
                 if rng.random() < 0.03:
                     vals[j] = np.nan
             hr, spo2, rr, tmp, sbp, dbp = vals
-            rows.append([pid, et.strftime("%Y-%m-%dT%H:%M:%SZ"), seq, hr, spo2, rr, tmp, sbp, dbp])
-    df = pd.DataFrame(rows, columns=["patient_id", "event_time", "seq", "hr", "spo2", "rr", "temp_c", "sbp", "dbp"])
+            rows.append([pid, et.strftime("%Y-%m-%dT%H:%M:%SZ"), seq, hr, spo2, rr, tmp, sbp, dbp,
+                         news2(hr, spo2, rr, tmp, sbp), qsofa(rr, sbp)])
+    df = pd.DataFrame(rows, columns=["patient_id", "event_time", "seq", "hr", "spo2", "rr", "temp_c", "sbp", "dbp",
+                                     "news2_score", "qsofa_score"])
     return df
 
 def main():

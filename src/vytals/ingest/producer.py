@@ -12,6 +12,8 @@ def parse_args():
     ap.add_argument("--speed", type=float, default=60, help="1=realtime, 60=60x, 0=max throughput")
     ap.add_argument("--bootstrap", default=None)
     ap.add_argument("--loop", action="store_true", help="loop forever")
+    ap.add_argument("--shift-loop", action="store_true",
+                    help="with --loop: shift event_time forward each pass so the stream keeps advancing")
     return ap.parse_args()
 
 def main():
@@ -44,8 +46,14 @@ def main():
     sent, t0 = 0, time.time()
     # inter-arrival based on event_time deltas / speed
     prev_et = None
+    # --shift-loop: a looped replay must advance in event time, otherwise the
+    # stream watermark treats the replayed rows as late data and drops them
+    import pandas as pd
+    base_et = pd.to_datetime(df["event_time"], utc=True)
+    span = (base_et.max() - base_et.min()) if a.shift_loop else pd.Timedelta(0)
+    loop_offset = pd.Timedelta(0)
     while True:
-        for _, r in df.iterrows():
+        for i, r in df.iterrows():
             msg = {c: (None if pd_isna(r[c]) else r[c]) for c in df.columns}
             # normalize numpy types
             for k, v in list(msg.items()):
@@ -58,6 +66,9 @@ def main():
                 except Exception:
                     pass
             et = r["event_time"]
+            if a.shift_loop:
+                et = (base_et.iloc[i] + loop_offset).strftime("%Y-%m-%dT%H:%M:%SZ")
+                msg["event_time"] = et
             if a.speed > 0 and prev_et is not None:
                 try:
                     dt = (datetime.fromisoformat(str(et).replace("Z", "+00:00")) - datetime.fromisoformat(str(prev_et).replace("Z", "+00:00"))).total_seconds()
@@ -82,6 +93,7 @@ def main():
         print(f"DONE sent={sent} elapsed={el:.1f}s throughput={sent/max(el,1e-6):.1f} msg/s")
         if not a.loop:
             break
+        loop_offset += span + pd.Timedelta(minutes=1)
         print("looping...")
     prod.close()
 

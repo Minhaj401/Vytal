@@ -4,6 +4,10 @@ node_modules
 .next
 .git
 checkpoints
+graphify-out
+.playwright-mcp
 data/*.csv
+data/hlt009
+data/physionet2012
 models/*
 !models/.gitkeep

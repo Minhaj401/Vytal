@@ -8,6 +8,14 @@ streaming:
   watermark: "2 minutes"
   window: "5 minutes"
   slide: "1 minute"
+  trigger: "30 seconds"
+  starting_offsets: latest
+
+# Durability lake. Empty uri = local dev (no HDFS, checkpoints under ./checkpoints).
+# The docker-compose stack overrides this via config/docker.yaml.
+hdfs:
+  uri: ""
+  base: /vytals
 
 postgres:
   host: localhost

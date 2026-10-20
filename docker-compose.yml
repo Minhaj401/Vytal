@@ -21,6 +21,26 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+
+  # creates vitals.raw with the configured partition count (auto-create would give 1)
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic vitals.raw --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:29092 --describe --topic vitals.raw
+    restart: "no"
 
   postgres:
     image: postgres:16
@@ -32,19 +52,171 @@ services:
       - "5434:5432"  # 5432 = host-local pg, 5433 = care_db — vytals lives on 5434
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vytals -d vytals"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------- HDFS (durability lake) ----------
+  namenode:
+    image: apache/hadoop:3
+    hostname: namenode
+    user: root
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ ! -f /data/dfs/name/current/VERSION ]; then
+          hdfs namenode -format -nonInteractive
+        fi
+        exec hdfs namenode
+    ports:
+      - "9870:9870"   # web UI
+      - "8020:8020"   # RPC (hdfs://localhost:8020 from the host)
+    volumes:
+      - hdfs_nn:/data
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+  datanode:
+    image: apache/hadoop:3
+    hostname: datanode
+    user: root
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["exec hdfs datanode"]
+    depends_on:
+      - namenode
+    volumes:
+      - hdfs_dn:/data
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+  # one-shot: wait for the namenode, leave safe mode, create the lake dirs, open perms for Spark
+  hdfs-init:
+    image: apache/hadoop:3
+    user: root
+    depends_on:
+      - namenode
+      - datanode
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until hdfs dfs -ls / >/dev/null 2>&1; do sleep 2; done
+        hdfs dfsadmin -safemode leave 2>/dev/null || true
+        until hdfs dfsadmin -report 2>/dev/null | grep -q "Live datanodes (1)"; do sleep 2; done
+        hdfs dfs -mkdir -p /vytals/bronze /vytals/silver /vytals/checkpoints
+        hdfs dfs -chmod -R 777 /vytals
+        hdfs dfs -ls /vytals
+    restart: "no"
+    volumes:
+      - ./docker/hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./docker/hadoop/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+  # ---------- Spark standalone cluster ----------
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: vytals-spark:local
+    hostname: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master"]
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: vytals-spark:local
+    depends_on:
+      - spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    environment:
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: "2g"
+    ports:
+      - "8081:8081"
+
+  # Streaming job: Kafka -> window/features/ML -> HDFS parquet + Postgres risk_scores.
+  # Client mode: the driver lives in this container, so it must stay up while the job runs.
+  spark-submit:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    image: vytals-spark:local
+    profiles: ["pipeline"]
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app/src
+      VYTALS_CONFIG: /app/config/docker.yaml
+      # the JVM resolves maven central to an IPv6 address this network can't route
+      SPARK_SUBMIT_OPTS: "-Djava.net.preferIPv4Stack=true"
+    depends_on:
+      - spark-master
+      - spark-worker
+      - kafka-init
+      - namenode
+      - datanode
+      - postgres
+    volumes:
+      - ./:/app
+      - ivycache:/root/.ivy2
+    ports:
+      - "4040:4040"   # driver UI while the job runs
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --conf
+      - spark.jars.packages=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,org.postgresql:postgresql:42.7.3
+      - --conf
+      - spark.hadoop.fs.defaultFS=hdfs://namenode:8020
+      - --conf
+      - spark.hadoop.dfs.client.use.datanode.hostname=true
+      - /app/src/vytals/streaming/job.py
+
+  # ---------- demo producer (CSV -> Kafka) ----------
+  producer:
+    build: .
+    image: vytals-api:local
+    profiles: ["pipeline"]
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      PYTHONPATH: /app/src
+      VYTALS_CONFIG: /app/config/docker.yaml
+    depends_on:
+      - kafka-init
+    command:
+      - python
+      - -m
+      - vytals.ingest.producer
+      - --input
+      - data/vitals.csv
+      - --speed
+      - "60"
+      - --loop
+      - --shift-loop
 
   api:
     build: .
+    image: vytals-api:local
     command: uvicorn vytals.api.server:app --host 0.0.0.0 --port 8000
     volumes:
       - ./:/app
     ports:
       - "8000:8000"
     depends_on:
-      - kafka
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
-      VYTALS_CONFIG: /app/config/default.yaml
+      VYTALS_CONFIG: /app/config/docker.yaml
+      VYTALS_SOURCE: postgres
 
 volumes:
   pgdata:
+  hdfs_nn:
+  hdfs_dn:
+  ivycache:

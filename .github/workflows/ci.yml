@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -19,7 +23,9 @@ jobs:
           pip install -r requirements.txt
           pip install httpx  # API smoke client
       - name: Compile check
-        run: python -m py_compile src/vytals/config.py src/vytals/data/loader.py src/vytals/ingest/producer.py src/vytals/streaming/job.py src/vytals/features/windowed.py src/vytals/ml/risk_model.py src/vytals/ml/train.py src/vytals/ml/predict.py src/vytals/sim/replay.py src/vytals/api/server.py src/vytals/store/db.py
+        run: python -m py_compile src/vytals/config.py src/vytals/data/loader.py src/vytals/ingest/producer.py src/vytals/streaming/job.py src/vytals/features/windowed.py src/vytals/ml/risk_model.py src/vytals/ml/train.py src/vytals/ml/predict.py src/vytals/sim/replay.py src/vytals/api/server.py src/vytals/store/db.py src/vytals/store/queries.py
+      - name: Unit tests
+        run: python -m unittest discover -s tests
       - name: Sample data
         run: python scripts/make_sample_data.py --patients 4 --minutes 30 --out /tmp/vitals_ci.csv
       - name: Loader check
@@ -31,11 +37,11 @@ jobs:
       - name: API smoke
         run: |
           PYTHONPATH=src VYTALS_DATA=/tmp/vitals_ci.csv VYTALS_MODEL=/tmp/xgb_ci.json python -m uvicorn vytals.api.server:app --port 8000 & echo $! > /tmp/api.pid
-          sleep 12
+          trap 'kill $(cat /tmp/api.pid)' EXIT
+          for i in $(seq 1 30); do curl -sf localhost:8000/api/health && break || sleep 2; done
           curl -sf localhost:8000/api/health
           curl -sf localhost:8000/api/patients | head -c 200; echo
           curl -sf localhost:8000/api/analysis | head -c 200; echo
-          kill $(cat /tmp/api.pid)
 
   frontend:
     runs-on: ubuntu-latest
@@ -52,3 +58,12 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose config
+        run: docker compose config > /dev/null
+      - name: Build API image
+        run: docker build -t vytal-api:ci .

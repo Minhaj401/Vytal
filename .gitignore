@@ -3,8 +3,22 @@ __pycache__/
 *.pyc
 node_modules/
 .next/
+.playwright-mcp/
 checkpoints/
 *.log
 .env
 .DS_Store
 *.tsbuildinfo
+
+# real dataset artifacts (reproduce with: make data-real)
+data/physionet2012/
+data/physionet2012.csv
+
+# HLT-009 artifacts (reproduce with: make data-hlt009 / make train-hlt009)
+data/hlt009/
+data/hlt009.csv
+data/hlt009_metrics.json
+models/xgb_hlt009_*.json
+
+# generated knowledge graph
+graphify-out/

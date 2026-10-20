@@ -89,7 +89,7 @@ export default function PatientPage() {
           </div>
           <div className="apple-segmented mt-3 inline-flex gap-1 text-[13px] font-semibold">
             {["Vitals", "Trends", "Stream"].map((t, i) => (
-              <span key={t} className={`rounded-[10px] px-3 py-1 ${i === 0 ? "bg-white shadow-sm" : "apple-secondary"}`}>{t}</span>
+              <a key={t} href={`#${t.toLowerCase()}`} className={`rounded-[10px] px-3 py-1 ${i === 0 ? "bg-white shadow-sm" : "apple-secondary"}`}>{t}</a>
             ))}
           </div>
         </div>
@@ -99,7 +99,7 @@ export default function PatientPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div id="vitals" className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Vital label="Heart rate" value={fmt(live?.hr, 0)} unit="bpm" color={live && (live.hr! > 100 || live.hr! < 50) ? "#FF3B30" : "#1D1D1F"} sub="60–100 normal" />
         <Vital label="SpO₂" value={fmt(live?.spo2, 1)} unit="%" color={live && live.spo2! < 94 ? "#FF3B30" : "#34C759"} sub="≥95% normal" />
         <Vital label="Resp rate" value={fmt(live?.rr, 0)} unit="/min" color="#1D1D1F" sub="12–20 normal" />
@@ -108,7 +108,7 @@ export default function PatientPage() {
         <Vital label="Samples" value={hist.length} unit="pts" color="#86868B" sub="sliding window" />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div id="trends" className="grid gap-3 lg:grid-cols-2">
         <div className="apple-card p-5">
           <h2 className="apple-title text-[17px]">Heart rate <span className="font-normal apple-secondary">— live</span></h2>
           <div className="h-64">
@@ -142,7 +142,7 @@ export default function PatientPage() {
         </div>
       </div>
 
-      <div className="apple-card p-5">
+      <div id="stream" className="apple-card p-5">
         <h2 className="apple-title text-[17px]">Live stream <span className="font-normal apple-secondary text-[13px]">(Kafka vitals.raw → this route)</span></h2>
         <div className="scroll-thin mt-2 max-h-64 overflow-auto rounded-2xl bg-black/[0.04] p-3 font-mono text-[12px] leading-relaxed">
           {[...hist].reverse().slice(0, 40).map((p: any, i: number) => (

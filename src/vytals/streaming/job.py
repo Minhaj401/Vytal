@@ -1,28 +1,70 @@
-"""Spark Structured Streaming: Kafka vitals.raw -> validate -> window -> features -> ML -> Postgres."""
+"""Spark Structured Streaming: Kafka vitals.raw -> validate -> window -> features -> ML -> HDFS + Postgres.
+
+Sinks:
+  - HDFS  /vytals/bronze/vitals       raw validated vitals (parquet, partitioned by date)
+  - HDFS  /vytals/silver/risk_scores  scored 5m/1m windows (parquet, partitioned by date/patient)
+  - HDFS  /vytals/checkpoints         stream checkpoints (survive container restarts)
+  - PG    risk_scores                 serving table for the API/dashboard
+"""
 from __future__ import annotations
 import argparse
+import os
+
 from vytals.config import load_config
 
 VITAL_COLS = ["hr", "spo2", "rr", "temp_c", "sbp", "dbp"]
+PG_COLS = ["patient_id", "window_start", "window_end", "p_risk", "risk_score", "risk_level", *VITAL_COLS]
+DEFAULT_PACKAGES = ("org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,"
+                    "org.postgresql:postgresql:42.7.3")
 
-def build_spark(app="vytals-stream"):
+
+def build_spark(app="vytals-stream", hdfs_uri=None):
     from pyspark.sql import SparkSession
-    return (SparkSession.builder.appName(app)
-            .config("spark.sql.streaming.statefulOperator.checkCorrectness.enabled", "false")
-            .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.postgresql:postgresql:42.6.0")
-            .getOrCreate())
+    builder = (SparkSession.builder.appName(app)
+               .config("spark.sql.session.timeZone", "UTC")
+               .config("spark.sql.streaming.statefulOperator.checkCorrectness.enabled", "false")
+               # 200 shuffle partitions on a 2-core demo executor starves the batch
+               .config("spark.sql.shuffle.partitions",
+                       os.environ.get("VYTALS_SPARK_SHUFFLE_PARTITIONS", "4"))
+               .config("spark.jars.packages", os.environ.get("VYTALS_SPARK_PACKAGES", DEFAULT_PACKAGES)))
+    if hdfs_uri:
+        builder = (builder.config("spark.hadoop.fs.defaultFS", hdfs_uri)
+                   # datanode is reachable by container IP inside the compose network
+                   .config("spark.hadoop.dfs.client.use.datanode.hostname", "true"))
+    return builder.getOrCreate()
+
+
+def lake_paths(cfg: dict) -> dict | None:
+    hdfs = cfg.get("hdfs") or {}
+    uri = (hdfs.get("uri") or "").rstrip("/")
+    if not uri:
+        return None
+    base = (hdfs.get("base") or "/vytals").rstrip("/")
+    root = f"{uri}{base}"
+    return {
+        "root": root,
+        "bronze": f"{root}/bronze/vitals",
+        "silver": f"{root}/silver/risk_scores",
+        "checkpoints": f"{root}/checkpoints",
+    }
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bootstrap", default=None)
     ap.add_argument("--topic", default=None)
-    ap.add_argument("--model", default="models/xgb_risk.json")
+    ap.add_argument("--model", default=None)
+    ap.add_argument("--checkpoint", default=None)
     a = ap.parse_args()
     cfg = load_config()
     bootstrap = a.bootstrap or cfg["kafka"]["bootstrap_servers"]
     topic = a.topic or cfg["kafka"]["topic"]
     watermark, window, slide = cfg["streaming"]["watermark"], cfg["streaming"]["window"], cfg["streaming"]["slide"]
+    trigger = cfg["streaming"].get("trigger", "30 seconds")
+    starting_offsets = cfg["streaming"].get("starting_offsets", "latest")
     pg = cfg["postgres"]
+    lake = lake_paths(cfg)
+    model_path = a.model or cfg["model"]["path"]
 
     from pyspark.sql import functions as F
     from pyspark.sql.types import StructType, StructField, StringType, DoubleType, LongType
@@ -34,13 +76,13 @@ def main():
         *[StructField(c, DoubleType(), True) for c in VITAL_COLS],
     ])
 
-    spark = build_spark()
+    spark = build_spark(hdfs_uri=((cfg.get("hdfs") or {}).get("uri") or "").rstrip("/") or None)
     spark.sparkContext.setLogLevel("WARN")
 
     raw = (spark.readStream.format("kafka")
            .option("kafka.bootstrap.servers", bootstrap)
            .option("subscribe", topic)
-           .option("startingOffsets", "latest")
+           .option("startingOffsets", starting_offsets)
            .option("failOnDataLoss", "false")
            .load())
 
@@ -60,20 +102,18 @@ def main():
                 *[F.stddev(c).alias(f"{c}_std") for c in VITAL_COLS],
                 *[F.min(c).alias(f"{c}_min") for c in VITAL_COLS],
                 *[F.max(c).alias(f"{c}_max") for c in VITAL_COLS],
-                F.max("event_ts").alias("window_end"),
-                F.count("*").alias("n_rows"))
-           .withColumn("window_end", F.col("window_end").cast("string")))
+                F.count("*").alias("n_rows")))
 
-    # ML inference + Postgres sink via foreachBatch (loads RiskModel once per executor batch on driver)
+    # ML inference + sinks via foreachBatch (loads RiskModel once on the driver)
     pg_url = f"jdbc:postgresql://{pg['host']}:{pg['port']}/{pg['db']}"
     pg_props = {"user": pg["user"], "password": pg["password"], "driver": "org.postgresql.Driver"}
 
-    model_path = a.model
     state = {"model": None}
 
     def write_batch(batch_df, batch_id):
         import pandas as pd
-        if batch_df.rdd.isEmpty():
+        pdf = batch_df.toPandas()
+        if pdf.empty:
             return
         if state["model"] is None:
             from vytals.ml.risk_model import RiskModel
@@ -81,9 +121,7 @@ def main():
                 state["model"] = RiskModel.load(model_path)
             except Exception as e:
                 print(f"[batch {batch_id}] model load failed: {e}; using rules fallback")
-                from vytals.ml.risk_model import RiskModel as RM
-                state["model"] = RM(None)
-        pdf = batch_df.toPandas()
+                state["model"] = RiskModel(None)
         # Spark agg cols are exactly {v}_mean/{v}_std/{v}_min/{v}_max (aliased above).
         # current ~= window mean as proxy; slope/delta = 0 within one mini-window
         # (training uses full trailing windows via build_features — see features/windowed.py).
@@ -91,7 +129,7 @@ def main():
         from vytals.features.windowed import FEATURE_COLS
         feats = pd.DataFrame()
         feats["patient_id"] = pdf["patient_id"]
-        feats["window_end"] = pdf["window_end"].astype(str)
+        feats["window_end"] = [str(w["end"]) for w in pdf["w"]]
         for v in VITAL_COLS:
             feats[f"{v}_current"] = pdf[f"{v}_mean"]
             feats[f"{v}_mean"] = pdf[f"{v}_mean"]
@@ -108,26 +146,64 @@ def main():
             if c not in feats:
                 feats[c] = 0.0
         res = state["model"].predict(feats)
-        res["window_start"] = pdf["w"].apply(lambda w: str(w["start"]) if w is not None else None).values if "w" in pdf else None
-        # write to postgres (create table if needed elsewhere) + console
-        try:
-            from pyspark.sql import functions as _F
-            sdf = (batch_df.sparkSession.createDataFrame(res)
-                   .withColumn("window_end", _F.to_timestamp("window_end"))
-                   .withColumn("window_start", _F.to_timestamp("window_start")))
-            sdf.write.jdbc(pg_url, "risk_scores", mode="append", properties=pg_props)
-        except Exception as e:
-            print(f"[batch {batch_id}] pg write failed (ok in dev): {e}")
-        print(f"[batch {batch_id}] scored {len(res)} windows; top={res.sort_values('risk_score', ascending=False).head(3).to_dict('records')}")
+        # window means double as the vitals shown beside each score in the UI
+        for v in VITAL_COLS:
+            res[v] = pdf[f"{v}_mean"].values
+        # window boundaries (not max(event_ts)) so the serving PK stays one row per window
+        res["window_start"] = [str(w["start"]) for w in pdf["w"]]
+        res["window_end"] = [str(w["end"]) for w in pdf["w"]]
 
+        sdf = (batch_df.sparkSession.createDataFrame(res)
+               .withColumn("window_start", F.to_timestamp("window_start"))
+               .withColumn("window_end", F.to_timestamp("window_end"))
+               .withColumn("event_date", F.to_date("window_end")))
+
+        # shortcut: foreachBatch is not transactional across sinks — a retried batch
+        # after a partial write can duplicate rows / collide on risk_scores' PK.
+        try:
+            sdf.select(*PG_COLS).write.jdbc(pg_url, "risk_scores", mode="append", properties=pg_props)
+        except Exception as e:
+            print(f"[batch {batch_id}] pg write failed: {e}")
+        if lake:
+            try:
+                (sdf.coalesce(1)
+                 .write.mode("append")
+                 .partitionBy("event_date", "patient_id")
+                 .parquet(lake["silver"]))
+            except Exception as e:
+                print(f"[batch {batch_id}] hdfs write failed: {e}")
+        print(f"[batch {batch_id}] scored {len(res)} windows; top="
+              f"{res.sort_values('risk_score', ascending=False).head(3).to_dict('records')}")
+
+    if lake:
+        bronze = (valid.withColumn("event_date", F.to_date("event_ts"))
+                  .coalesce(1)
+                  .writeStream.format("parquet")
+                  .outputMode("append")
+                  .option("path", lake["bronze"])
+                  .option("checkpointLocation", f"{lake['checkpoints']}/bronze")
+                  .partitionBy("event_date")
+                  .trigger(processingTime=trigger)
+                  .start())
+        print(f"bronze -> {lake['bronze']}")
+
+    checkpoint = (a.checkpoint or os.environ.get("VYTALS_CHECKPOINT")
+                  or (f"{lake['checkpoints']}/risk_scores" if lake else "checkpoints/vytals"))
     q = (agg.writeStream
-         .outputMode("update")
+         # append: a window is emitted once, when the watermark closes it.
+         # update would re-emit the same window on every new reading -> duplicate
+         # rows against risk_scores' (patient_id, window_end) primary key.
+         .outputMode("append")
          .foreachBatch(write_batch)
-         .option("checkpointLocation", "file:///home/minhaj/vytal/checkpoints/vytals")
-         .trigger(processingTime="30 seconds")
+         .option("checkpointLocation", checkpoint)
+         .trigger(processingTime=trigger)
          .start())
-    print(f"streaming {bootstrap}/{topic} watermark={watermark} window={window}/{slide} -> postgres risk_scores")
-    q.awaitTermination()
+
+    sinks = "postgres risk_scores" + (f" + hdfs {lake['silver']}" if lake else "")
+    print(f"streaming {bootstrap}/{topic} watermark={watermark} window={window}/{slide} "
+          f"trigger={trigger} offsets={starting_offsets} -> {sinks}")
+    spark.streams.awaitAnyTermination()
+
 
 if __name__ == "__main__":
     main()
