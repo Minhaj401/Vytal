@@ -15,7 +15,7 @@
 
 **Project title:** *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data*
 
-**Live demo of the finished system:** ![demo](demo/demo.gif) ([full video](demo/demo.mp4))
+**Live demo of the finished system:** ![demo](https://github.com/user-attachments/assets/83c72dfb-9566-4864-845d-aa6956f8be1d) ([mp4](demo/demo.mp4) · [gif](demo/demo.gif) · [issue #1](https://github.com/Minhaj401/Vytal/issues/1))
 
 ---
 
@@ -224,6 +224,17 @@ Labels are **transparent physiology rules + small noise** (not diagnosis), and s
 | Isolation Forest* | — | — | — | 0.930 |
 
 \* unsupervised — AUROC only. **Honest caveat:** the target is rule-derived, so AUROC ≈ 1.0 measures how well the model learns the rule — clinical validity is addressed separately by §8.4.
+
+**Confusion matrix** — XGBoost, out-of-fold over the same 5 patient-wise folds, threshold 0.5 (27 494 window predictions; reproduces with `make compare`):
+
+![XGBoost out-of-fold confusion matrix](screenshots/confusion_matrix.png)
+
+| | predicted LOW | predicted HIGH |
+|---|---:|---:|
+| **actual LOW** | 27 208 (TN) | **2 (FP)** |
+| **actual HIGH** | 56 (FN) | 228 (TP) |
+
+**Read for the viva:** only **2 false alarms** out of 27 210 healthy windows — precision holds at **0.99** even though HIGH is just ~1 % of windows; **56 missed HIGH windows** = recall 0.80. Missed deterioration (FN) is the costly error; lowering the threshold trades FP for FN, so 0.5 is the shipped operating point.
 
 ### 7.5 Explainability (objective 14) — SHAP
 

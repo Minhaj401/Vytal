@@ -73,8 +73,9 @@ batch:
 	PYTHONPATH=src JAVA_HOME=$${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk} $(PY) scripts/batch_analytics.py
 
 # objective 13 — LR / RF / XGBoost / IsolationForest patient-wise CV table
+# (+ out-of-fold confusion matrix for the shipped model -> docs/screenshots/)
 compare:
-	PYTHONPATH=src $(PY) scripts/compare_models.py
+	PYTHONPATH=src MPLCONFIGDIR=/tmp/mpl $(PY) scripts/compare_models.py
 
 # objective 14 — SHAP global + local explanations -> docs/screenshots/
 shap:

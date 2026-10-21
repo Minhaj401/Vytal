@@ -285,6 +285,9 @@ Read: the model was never shown a death label, yet separates decedents at AUROC 
   | IsolationForest* | — | — | — | 0.930 |
 
   \* unsupervised — AUROC only. XGBoost wins on F1 and is the model shipped in the stream. Honest caveat: labels are rule-derived from the same physiology, so AUROC ≈ 1.0 measures separability of the rule, not clinical accuracy — the external check is §15.
+- **Confusion matrix (same run):** out-of-fold XGBoost predictions at threshold 0.5 over the 5 patient-wise test folds (27 494 window predictions): **TN 27 208 · FP 2 · FN 56 · TP 228** → precision 0.991 / recall 0.803 at this threshold. HIGH is only ~1 % of windows (284 / 27 494), so FP must stay tiny for precision to hold; FN (missed HIGH) is the costlier error. Plot saved by `make compare`:
+
+  ![XGBoost out-of-fold confusion matrix](screenshots/confusion_matrix.png)
 - **SHAP — `scripts/shap_explain.py` (`make shap`):** TreeExplainer on the real booster. Global top features: `hr_max` 3.80, `temp_c_current` 1.99, `dbp_min` 1.50, `sbp_current` 1.33, `sbp_min` 1.15 — same physiology the trainer logs as gain. Plots: `docs/screenshots/shap_global.png` (mean |SHAP| per feature) and `shap_patient.png` (local explanation for the riskiest window).
 
 ## 19. Single-machine vs distributed benchmark (objective 17)

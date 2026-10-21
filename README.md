@@ -5,9 +5,9 @@
 
 **Vytals** watches patient vitals (HR, SpO₂, RR, temp, BP) in real time, scores each patient's risk on a single 0–100 number, and streams it to a live dashboard. Built for the course project: *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data.*
 
-![Vytals dashboard demo — 300 real ICU patients, Kafka → Spark → XGBoost → Postgres](docs/demo/demo.gif)
+![Vytals dashboard demo — 300 real ICU patients, Kafka → Spark → XGBoost → Postgres](https://github.com/user-attachments/assets/83c72dfb-9566-4864-845d-aa6956f8be1d)
 
-> 🎥 [Full-quality video](docs/demo/demo.mp4) · recorded live with the dashboard backed by **streamed** Postgres scores (`VYTALS_SOURCE=pg`) after a complete Kafka → Spark Structured Streaming → XGBoost → PostgreSQL run on real PhysioNet Challenge 2012 ICU data (300 patients, 28 270 scored windows).
+> 🎥 100s recorded live with the dashboard backed by **streamed** Postgres scores (`VYTALS_SOURCE=pg`) after a complete Kafka → Spark Structured Streaming → XGBoost → PostgreSQL run on real PhysioNet Challenge 2012 ICU data (300 patients, 28 270 scored windows). [File in repo](docs/demo/demo.mp4) · [GIF version](docs/demo/demo.gif) · [issue #1](https://github.com/Minhaj401/Vytal/issues/1)
 
 ```
 Patient vitals
@@ -158,7 +158,7 @@ make bench    # objective 17 — pandas vs Spark timing on the same 1.76M-row ba
 make validate # outcome validation — streamed scores vs real ICU mortality (AUROC 0.715)
 ```
 
-Measured highlights (full tables in [TECHNICAL §16–20](docs/TECHNICAL.md)): XGBoost wins the model race (F1 0.882 vs RF 0.775 / LR 0.168); SHAP ranks `hr_max`, `temp`, `sbp` on top (sane physiology); pandas beats single-node Spark 60.9× at this scale — reported honestly, the distributed win needs multi-node data.
+Measured highlights (full tables in [TECHNICAL §16–20](docs/TECHNICAL.md)): XGBoost wins the model race (F1 0.882 vs RF 0.775 / LR 0.168; out-of-fold confusion matrix FP **2** / FN 56 of 27 494 windows); SHAP ranks `hr_max`, `temp`, `sbp` on top (sane physiology); pandas beats single-node Spark 60.9× at this scale — reported honestly, the distributed win needs multi-node data.
 
 ### CI/CD
 

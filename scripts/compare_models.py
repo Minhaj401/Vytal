@@ -8,6 +8,8 @@ Metrics (abstract §5): Precision, Recall, F1, ROC-AUC for "high risk"
 (rule score >= 50), patient-wise GroupShuffleSplit CV so one patient's windows
 never land in both sides. IsolationForest reports AUROC only (it has no
 predictions to threshold — decision scores vs the high-risk label).
+The shipped model (XGBoost) also gets an out-of-fold confusion matrix at
+threshold 0.5 — printed and saved to docs/screenshots/confusion_matrix.png.
 
 Usage: PYTHONPATH=src .venv/bin/python scripts/compare_models.py [--folds 5]
 """
@@ -56,9 +58,11 @@ def main() -> int:
 
     gss = GroupShuffleSplit(n_splits=a.folds, test_size=0.2, random_state=42)
     splits = list(gss.split(X, yb, groups))
+    oof: dict[str, tuple[np.ndarray, np.ndarray]] = {}
 
-    def supervised(name, make):
+    def supervised(name, make, collect=False):
         rows = []
+        ys, ps = [], []
         for tr, te in splits:
             clf = make()
             clf.fit(X.iloc[tr], yb[tr])
@@ -69,6 +73,10 @@ def main() -> int:
                          recall_score(yb[te], pred, zero_division=0),
                          f1_score(yb[te], pred, zero_division=0),
                          roc_auc_score(yb[te], prob)])
+            if collect:
+                ys.append(yb[te]); ps.append(pred)
+        if collect:
+            oof[name] = (np.concatenate(ys), np.concatenate(ps))
         return name, np.mean(rows, axis=0)
 
     results = [
@@ -78,7 +86,7 @@ def main() -> int:
             n_estimators=200, min_samples_leaf=3, random_state=42, n_jobs=-1)),
         supervised("XGBoost", lambda: xgb.XGBClassifier(
             n_estimators=300, max_depth=5, learning_rate=0.1,
-            eval_metric="logloss", random_state=42)),
+            eval_metric="logloss", random_state=42), collect=True),
     ]
 
     # unsupervised anomaly detection — no labels seen
@@ -96,7 +104,46 @@ def main() -> int:
         print(f"{name:<22}{fmt(p):>10}{fmt(r):>9}{fmt(f):>8}{fmt(auc):>8}")
     print("\n* IsolationForest is unsupervised (no labels in training) — AUROC only.")
     print("target = rule-derived risk >= 50 (HIGH+); split is patient-wise (no leakage).")
+
+    # out-of-fold confusion matrix for the shipped model (threshold 0.5)
+    from sklearn.metrics import confusion_matrix
+    yt, pr = oof["XGBoost"]
+    tn, fp, fn, tp = confusion_matrix(yt, pr, labels=[0, 1]).ravel()
+    print(f"\nXGBoost confusion matrix — out-of-fold, threshold 0.5 "
+          f"({a.folds} patient-wise folds, {len(yt):,} windows):")
+    print(f"                 pred LOW   pred HIGH")
+    print(f"  actual LOW     {tn:>8}   {fp:>8}")
+    print(f"  actual HIGH    {fn:>8}   {tp:>8}")
+    print(f"  (TN={tn:,} FP={fp:,} FN={fn:,} TP={tp:,})")
+    save_confusion_plot(tn, fp, fn, tp, a.folds, len(yt))
     return 0
+
+def save_confusion_plot(tn: int, fp: int, fn: int, tp: int, n_folds: int, n_rows: int) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    m = np.array([[tn, fp], [fn, tp]])
+    fig, ax = plt.subplots(figsize=(4.4, 3.8))
+    ax.imshow(m, cmap="Blues")
+    labels = ["LOW (<50)", "HIGH (≥50)"]
+    ax.set_xticks([0, 1], labels)
+    ax.set_yticks([0, 1], labels)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    thresh = m.max() / 2
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, f"{m[i, j]:,}", ha="center", va="center", fontsize=14,
+                    fontweight="bold", color="white" if m[i, j] > thresh else "#12395c")
+    ax.set_title(f"XGBoost — out-of-fold confusion (thr 0.5)\n"
+                 f"{n_folds} patient-wise folds · {n_rows:,} windows")
+    fig.tight_layout()
+    out = ROOT / "docs/screenshots/confusion_matrix.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  plot -> {out.relative_to(ROOT)}")
 
 if __name__ == "__main__":
     sys.exit(main())

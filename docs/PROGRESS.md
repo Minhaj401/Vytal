@@ -93,6 +93,7 @@
 - 🔧 **Dedupe-vs-replay gotcha found:** re-producing the same CSV after a prior stream run drops every message (checkpoint `dropDuplicates` state) — fixed for the demo with a fresh `VYTALS_CHECKPOINT`; documented in INSTALLATION §4 + TECHNICAL §7/§13 + troubleshooting.
 - ✅ **Demo video recorded (2026-10-21 pm):** live pipeline re-run (fresh checkpoint → producer 28 285 msgs → stream → PG full) with the dashboard in `VYTALS_SOURCE=pg`; captured 100 s via Chromium CDP screencast (puppeteer-core), encoded → `docs/demo/demo.mp4` (1.0 MB) + `demo.gif` (2.1 MB) embedded in README; frames verified (overview 300 patients, patient drill-down with charts + stream log).
 - ✅ **Docs pass:** README (demo embed + batch section), FEATURES ("coming next" → done list), INSTALLATION (pg mode, YARN, new make targets, env vars, troubleshooting), TECHNICAL (§6 live mode, §13 resolved rows, dedupe caveat), PROGRESS.
+- ✅ **README video player + confusion matrix (2026-10-21):** `demo.mp4` uploaded through issue #1 (`gh issue create --attach`) → permanent `user-attachments` URL that renders as a video player in the README (GIF kept as fallback); `make compare` now also emits the XGBoost **out-of-fold confusion matrix** (TN 27 208 / FP 2 / FN 56 / TP 228 at threshold 0.5 → `docs/screenshots/confusion_matrix.png`) — added to PRESENTATION §7.4 and TECHNICAL §18; `docs/PRESENTATION.md` pack covers architecture, workflows, user flow, accuracy tables, objectives 17/17, viva Q&A.
 
 ## 7. Next up (ordered)
 
