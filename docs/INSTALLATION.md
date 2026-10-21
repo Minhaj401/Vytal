@@ -1,5 +1,6 @@
 # Vytals — Installation & Running (Linux / macOS)
 
+> **Just want the commands?** → [RUNBOOK.md](RUNBOOK.md) (copy-paste ready, in order).
 > **Platforms:** Linux and macOS only. Windows is not supported (if you must, use a Linux VM or WSL2 — untested).
 > Companion docs: [FEATURES.md](FEATURES.md) · [TECHNICAL.md](TECHNICAL.md) · [PROGRESS.md](PROGRESS.md)
 
@@ -77,9 +78,10 @@ Prerequisites: JDK 17 on PATH, Docker running. Ports used: **9092** Kafka, **543
 
 ```bash
 # 1) infrastructure (docker run — this host's legacy compose v1 is broken vs Docker 29)
-docker run -d --name vytal-zk -p 2181:2181 \
-  -e ZOOKEEPER_CLIENT_PORT=2181 -e ZOOKEEPER_TICK_TIME=2000 confluentinc/cp-zookeeper:7.5.0
+#    (containers already exist? `docker start vytal-zk vytal-kafka vytal-postgres` instead)
 docker network create vytal-net 2>/dev/null
+docker run -d --name vytal-zk --network vytal-net -p 2181:2181 \
+  -e ZOOKEEPER_CLIENT_PORT=2181 -e ZOOKEEPER_TICK_TIME=2000 confluentinc/cp-zookeeper:7.5.0
 docker run -d --name vytal-kafka --network vytal-net -p 9092:9092 --hostname kafka \
   -e KAFKA_BROKER_ID=1 -e KAFKA_ZOOKEEPER_CONNECT=vytal-zk:2181 \
   -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092 \
@@ -89,6 +91,10 @@ docker run -d --name vytal-kafka --network vytal-net -p 9092:9092 --hostname kaf
   -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true confluentinc/cp-kafka:7.5.0
 docker run -d --name vytal-postgres --restart unless-stopped -p 5434:5432 \
   -e POSTGRES_DB=vytals -e POSTGRES_USER=vytals -e POSTGRES_PASSWORD=vytals postgres:16
+
+# 1.5) topic — auto-create alone was not enough for the Spark source; make it explicitly
+docker exec vytal-kafka kafka-topics --bootstrap-server localhost:9092 \
+  --create --if-not-exists --topic vitals.raw --partitions 3 --replication-factor 1
 
 # 2) tables
 make db

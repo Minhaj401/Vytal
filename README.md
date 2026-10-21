@@ -1,6 +1,6 @@
 # Vytals — Real-Time Vital Risk Scoring
 
-> 📖 **Docs:** [Presentation pack](docs/PRESENTATION.md) · [Features (non-technical)](docs/FEATURES.md) · [Technical](docs/TECHNICAL.md) · [Progress](docs/PROGRESS.md) · [Installation (Linux/macOS)](docs/INSTALLATION.md)
+> 📖 **Docs:** [Runbook (copy-paste)](docs/RUNBOOK.md) · [Presentation pack](docs/PRESENTATION.md) · [Features (non-technical)](docs/FEATURES.md) · [Technical](docs/TECHNICAL.md) · [Progress](docs/PROGRESS.md) · [Installation (Linux/macOS)](docs/INSTALLATION.md)
 
 
 **Vytals** watches patient vitals (HR, SpO₂, RR, temp, BP) in real time, scores each patient's risk on a single 0–100 number, and streams it to a live dashboard. Built for the course project: *Scalable Big Data Analytics Framework for Real-Time Health-Risk Monitoring Using Multivariate Patient Vital-Sign Data.*
