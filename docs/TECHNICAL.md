@@ -110,6 +110,17 @@ Powers the dashboard with **zero infrastructure** (no Kafka/Spark/Java):
 - **JSON safety:** starlette serializes with `allow_nan=False`; any pandas `NaN` escaping to a response = 500. `json_safe()` (`server.py:16`) recursively maps NaN/Inf/numpy → `None`; the `/api/analysis` response (pandas `to_dict("records")` re-introduces NaN for missing vitals) passes through it. *This fixed a real 500 observed in production logs.*
 - CORS open (dev convenience; frontend is same-origin in practice).
 
+### Live mode — `VYTALS_SOURCE=pg` (dashboard reads the stream's scores)
+
+Two sources behind the same routes, so the frontend needs no changes:
+
+- **`replay` (default)** — in-memory replay engine; works with zero infra.
+- **`pg`** — `store/pg_reads.py:PgLive` serves streamed truth: risk scores from PG `risk_scores` (TTL 3 s cache, one `merge_asof` refresh), vitals from the canonical CSV the producer replayed (**as-of join**: each charted reading carries the most recent score ≤ its timestamp — exactly what a bedside monitor displays between updates).
+  - `/api/patients` + `/api/analysis` rank by latest scored window per patient (risk from PG, HR/SpO₂ from the joined chart row); `/history` returns chart-cadence points with streamed `risk_score/risk_level/p_risk`; `/advance` → 409 (replay-only).
+  - If PG is unreachable/empty at startup, it logs the reason and **falls back to replay** — the dashboard still renders. `/api/health` reports the active `source`.
+  - Verified 2026-10-21 against the full replay's 28 270 streamed rows: 300 patients, 0.4 s init, no NaN leaks.
+- Run: `VYTALS_SOURCE=pg make api` (needs PG up + a completed `make producer`/`make stream` run).
+
 ## 7. Streaming path
 
 ### Producer (`ingest/producer.py`)

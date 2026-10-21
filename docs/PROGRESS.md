@@ -4,7 +4,7 @@
 > Companion docs: [FEATURES.md](FEATURES.md) · [TECHNICAL.md](TECHNICAL.md) · [INSTALLATION.md](INSTALLATION.md)
 
 **Last updated:** 2026-10-21
-**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS+YARN ✅ live · Streaming e2e ✅ verified · Outcome validation ✅ done · **all 17 abstract objectives ✅ completed** · dashboard PG live-read ⬜ optional polish
+**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS+YARN ✅ live · Streaming e2e ✅ verified · Outcome validation ✅ done · **all 17 abstract objectives ✅ completed** · dashboard PG live-read ✅ done
 
 ## 1. Status by area
 
@@ -31,7 +31,7 @@
 | 19 | Multi-model comparison (RF/LR/IF…) | ✅ Done | objective #13 — `make compare`: XGBoost F1 0.882 wins vs RF 0.775 / LR 0.168 / IF AUROC 0.930 |
 | 20 | **Outcome validation (SAPS/SOFA/death labels)** | ✅ Done | `make validate` — death AUROC **0.733** (mid-replay) → **0.715** final (full replay), SOFA rho +0.337 |
 | 21 | Distributed vs single-machine benchmark | ✅ Done | objective #17 — `make bench`: pandas 0.57 s vs Spark-on-HDFS 34.81 s (60.9×, honest overhead reading) |
-| 22 | PG-backed live reads in dashboard | ⬜ Optional | not an abstract objective — dashboard works via replay; PG read path is the last polish item |
+| 22 | PG-backed live reads in dashboard | ✅ Done | `VYTALS_SOURCE=pg make api` — API serves streamed PG scores + as-of-joined vitals (`store/pg_reads.py`); replay stays default; auto-fallback if PG down |
 
 ## 2. Completed timeline
 
@@ -88,14 +88,14 @@
 - ✅ **SHAP (obj 14):** `make shap` — TreeExplainer global plot + riskiest-window local plot (`docs/screenshots/shap_{global,patient}.png`); top |SHAP|: `hr_max` 3.80, `temp_c_current` 1.99, `dbp_min` 1.50, `sbp_current` 1.33.
 - ✅ **Benchmark (obj 17):** `make bench` — identical group-by over 1 757 980 readings: pandas 0.57 s (3.07 M rows/s) vs PySpark on HDFS 34.81 s (50 k rows/s) = **60.9×**; documented honestly (JVM+HDFS overhead dominates at this scale; distributed win needs multi-node data).
 - ✅ **Obj 15 decision:** PostgreSQL `risk_scores` documented as the HBase-equivalent serving store (TECHNICAL §20) — PK (patient_id, window_end) gives ms point retrieval the dashboard needs; no extra cluster on a 7.4 GB box.
+- ✅ **Dashboard PG live-read (row 22):** `store/pg_reads.py:PgLive` + `VYTALS_SOURCE=pg` mode in `api/server.py` — risk from PG `risk_scores` (3 s TTL, merge_asof refresh), vitals as-of-joined from the replayed CSV; same response shapes so the frontend needed zero changes; `/advance` → 409 in pg mode; auto-fallback to replay if PG is down; verified both modes end-to-end (300 patients / 28 270 scores / no NaN leaks; replay regression green).
 
 ## 7. Next up (ordered)
 
-All **17 abstract objectives are complete**. Remaining polish:
+All **17 abstract objectives** and the PG live-read are complete. Remaining polish:
 
-1. **Dashboard PG live-read** (optional, row 22) — scores already land in PG; wire `/api/patients*` to it so the UI reflects the stream instead of replay.
-2. **Final demo walkthrough** — `docker start vytal-zk vytal-kafka` + `make hdfs-up` + producer/stream/api and re-run the full story for the report/viva.
-3. Repo hygiene: delete stray root `package-lock.json`; final doc read-through.
+1. **Final demo walkthrough** — `docker start vytal-zk vytal-kafka` + `make hdfs-up` + producer/stream/api (`VYTALS_SOURCE=pg make api`) and re-run the full story for the report/viva.
+2. Repo hygiene: final doc read-through.
 
 ## 8. Known issues / blockers
 
@@ -148,3 +148,5 @@ All **17 abstract objectives are complete**. Remaining polish:
 | `make compare` — model comparison | ✅ XGBoost F1 0.882 / AUROC 0.997 > RF > LR; IsolationForest AUROC 0.930 (patient-wise CV) |
 | `make shap` — SHAP explanations | ✅ `docs/screenshots/shap_global.png` + `shap_patient.png`; hr_max/temp/sbp lead |
 | `make bench` — pandas vs Spark | ✅ 0.57 s (3.07 M rows/s) vs 34.81 s (50 k rows/s), same 1.76 M rows, 42 groups |
+| `VYTALS_SOURCE=pg` API mode | ✅ health `{source:pg, n_scores:28270}`, patients 300, analysis counts, history 127 pts (risk as-of-joined), live LivePoint shape, 404/409 correct, no NaN |
+| replay mode regression (default) | ✅ health/source=replay, 12 patients, analysis + history + live unchanged |

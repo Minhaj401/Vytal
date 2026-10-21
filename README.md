@@ -127,7 +127,8 @@ docker run -d --name vytal-postgres -p 5434:5432 \
 make db          # create tables in PG on :5434
 make producer    # CSV → vitals.raw @ 60×
 make stream      # Spark → risk_scores
-make api         # API + UI, now backed by PG
+make api         # API + UI (replay mode — in-memory demo source)
+VYTALS_SOURCE=pg make api   # API + UI backed by the STREAM's scores in PG
 ```
 
 ### C. HDFS — distributed storage of the raw dataset
@@ -175,7 +176,7 @@ model:     path: models/xgb_risk.json, version: v1
 ## Honest limitations
 
 - Risk "truth" is rule-based labels + noise — a demo stand-in for a clinically validated target. External check: streamed scores reach death AUROC 0.715 vs real `Outcomes-a.txt` without ever seeing a death label.
-- API defaults to in-memory replay; streamed scores live in PG (`risk_scores`, read by `make validate`) but the dashboard doesn't read them yet.
+- API runs two modes: default **replay** (in-memory, zero infra) or **`VYTALS_SOURCE=pg`** (dashboard reads the streamed scores from PG, vitals as-of-joined from the replayed CSV).
 - Streaming sink approximates slope/delta as 0 and current≈window mean; training uses full trailing windows. Feature impl is shared via `build_features()` to avoid drift, but the Spark mini-window is coarser than batch.
 - Legacy `docker-compose` v1 on this host breaks against Docker 29 — use `docker run` or upgrade to the compose plugin.
 - Port map on this host: 5432 = system pg, 5433 = care stack, **5434 = vytals pg**, 9092 = vytals kafka.

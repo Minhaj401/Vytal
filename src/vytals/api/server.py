@@ -1,4 +1,11 @@
-"""FastAPI backend for Next.js dashboard. Serves live replay + history + analysis."""
+"""FastAPI backend for Next.js dashboard. Serves live replay + history + analysis.
+
+Two data sources (VYTALS_SOURCE):
+  replay (default) — in-memory replay engine, works with zero infra
+  pg               — streamed scores from PostgreSQL (risk_scores) + vitals from
+                     the canonical CSV the producer replayed; use after a full
+                     `make producer` + `make stream` run
+"""
 from __future__ import annotations
 import math, os, threading
 from contextlib import asynccontextmanager
@@ -29,17 +36,26 @@ def json_safe(obj):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    try:
-        get_replay()
-    except Exception as e:
-        print(f"replay startup failed: {e}")
+    if SOURCE == "pg":
+        try:
+            get_pg()
+        except Exception as e:
+            print(f"pg source unavailable ({e}) — falling back to replay")
+    if PG is None:
+        try:
+            get_replay()
+        except Exception as e:
+            print(f"replay startup failed: {e}")
     yield
 
 app = FastAPI(title="Vytals API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+SOURCE = (os.environ.get("VYTALS_SOURCE") or "replay").strip().lower()
 REPLAY: Replay | None = None
 REPLAY_ERROR: str | None = None
+PG = None
+PG_ERROR: str | None = None
 
 def resolve_repo_file(cand: str) -> Path:
     p = Path(cand)
@@ -80,13 +96,42 @@ def need_replay() -> Replay:
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+def pg_mode() -> bool:
+    return SOURCE == "pg" and PG is not None
+
+def get_pg():
+    global PG, PG_ERROR
+    if PG is None:
+        from vytals.store.pg_reads import PgLive
+        load_config()
+        cand = os.environ.get("VYTALS_DATA") or "data/vitals_real.csv"
+        p = resolve_repo_file(cand)
+        if not p.exists():
+            alts = [ROOT / "data/vitals_real.csv", ROOT / "data/vitals.csv"]
+            p = next((x for x in alts if x.exists()), p)
+        if not p.exists():
+            raise FileNotFoundError(f"no vitals CSV for pg mode (tried {cand})")
+        try:
+            PG = PgLive(p)
+        except Exception as e:
+            PG_ERROR = str(e)
+            raise
+    return PG
+
 @app.get("/api/health")
 def health():
+    if pg_mode():
+        try:
+            return {"ok": True, "source": "pg", **PG.stats()}
+        except Exception as e:
+            return {"ok": False, "source": "pg", "error": str(e)}
     ok = REPLAY is not None or REPLAY_ERROR is None
-    return {"ok": ok, "error": REPLAY_ERROR}
+    return {"ok": ok, "source": "replay", "error": REPLAY_ERROR}
 
 @app.get("/api/patients")
 def patients():
+    if pg_mode():
+        return {"patients": PG.patients()}
     r = need_replay()
     out = []
     for pid in r.patients():
@@ -101,6 +146,11 @@ def patients():
 
 @app.get("/api/patients/{pid}/live")
 def live(pid: str):
+    if pg_mode():
+        d = PG.live(pid)
+        if not d:
+            return JSONResponse({"error": "unknown patient"}, status_code=404)
+        return d
     r = need_replay()
     d = r.latest.get(pid)
     if not d:
@@ -109,12 +159,16 @@ def live(pid: str):
 
 @app.get("/api/patients/{pid}/history")
 def history(pid: str, limit: int = Query(default=120, ge=1, le=400)):
+    if pg_mode():
+        return {"patient_id": pid, "points": PG.history(pid, limit)}
     r = need_replay()
     h = r.history.get(pid, [])[-limit:]
     return {"patient_id": pid, "points": h}
 
 @app.get("/api/analysis")
 def analysis():
+    if pg_mode():
+        return json_safe(PG.analysis())
     r = need_replay()
     lives = [v for v in r.latest.values()]
     if not lives:
@@ -136,6 +190,10 @@ def analysis():
 
 @app.post("/api/advance")
 def advance(steps: int = Query(default=10, ge=1, le=200)):
+    if pg_mode():
+        return JSONResponse(
+            {"detail": "pg mode serves streamed scores — advancing is replay-only"},
+            status_code=409)
     r = need_replay()
     out = r.step(steps)
     return {"advanced": len(out), "latest": out[-1] if out else None}
