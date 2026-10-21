@@ -215,3 +215,19 @@ Single-node HDFS (Hadoop **3.4.3**, JDK **17**, replication **1**) is the raw-da
 - **Verified (2026-10-19):** `hdfs dfsadmin -report` → 1 live datanode; `hdfs dfs -cat` on a raw record returns chart lines; PySpark `local[2]` session reading `hdfs://localhost:9000/user/alvi/vytals/csv/vitals_real.csv` → 28 285 rows / 300 patients (matches local counts), and reads a raw record file (273 rows).
 - **Why single-node:** the course objective is the HDFS storage layer + how the pipeline talks to it; one NameNode/DataNode on the lab machine demonstrates the API (write-once blocks, replication, `hdfs dfs`) without a cluster to babysit. Scaling out is config + more DataNodes, not code.
 - **Small-file note:** 4000 × ~9 KB files is the realistic ICU shape (one file per patient) but HDFS prefers fewer/larger blocks — `put -t 8` parallelizes the upload; if this ever becomes a bottleneck, concatenate per-patient files into sharded partitions (Hive/Spark can read either).
+
+## 15. Outcome validation (`scripts/validate_outcomes.py`, `make validate`)
+
+The risk model was trained on **rule-based derangement labels**, never on mortality — so the honest question is external validity: do the streamed scores track real ICU outcomes? The script joins PG `risk_scores` (per-patient aggregate) to `Outcomes-a.txt` (real SAPS-I, SOFA, LOS, in-hospital death) by RecordID and reports AUROC, survivor/non-survivor separation, Spearman correlations, and the risk-level mix by mortality.
+
+Measured on the live e2e replay (300 patients, mid-replay, 2026-10-21):
+
+| Metric | Value |
+|---|---|
+| AUROC — in-hospital death (per-patient **mean** risk) | **0.733** |
+| AUROC (per-patient max risk) | 0.547 — ceiling effect, max saturates ~74 for everyone |
+| mean risk — survivors vs non-survivors | 34.8 vs 41.8 |
+| Spearman vs SOFA / SAPS-I / LOS | +0.351 / +0.301 / +0.096 |
+| level mix | dead: 27.8% HIGH, 9.7% LOW — alive: 13.8% HIGH, 29.3% LOW |
+
+Read: the model was never shown a death label, yet separates decedents at AUROC ≈ 0.73 and tracks SOFA — exactly the sanity check a rule-derived target should pass. Max-risk is the wrong aggregate (everyone's worst 5-min window is abnormal); mean over the stay discriminates.

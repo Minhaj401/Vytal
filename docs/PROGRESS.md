@@ -4,7 +4,7 @@
 > Companion docs: [FEATURES.md](FEATURES.md) · [TECHNICAL.md](TECHNICAL.md) · [INSTALLATION.md](INSTALLATION.md)
 
 **Last updated:** 2026-10-21
-**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS ✅ live · **Streaming e2e ✅ verified** · Distributed batch/ML extras ⬜ pending
+**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS ✅ live · Streaming e2e ✅ verified · Outcome validation ✅ done · Distributed batch/ML extras ⬜ pending
 
 ## 1. Status by area
 
@@ -29,7 +29,7 @@
 | 17 | Risk scores → HBase (or equivalent) | ⬜ Pending | abstract objective #15 |
 | 18 | SHAP explainability | ⬜ Pending | abstract objective #14 |
 | 19 | Multi-model comparison (RF/LR/IF…) | ⬜ Pending | abstract objective #13 |
-| 20 | Outcome validation (SAPS/SOFA/death labels) | ⬜ Pending | data already in `data/physionet2012/Outcomes-a.txt` |
+| 20 | **Outcome validation (SAPS/SOFA/death labels)** | ✅ Done | `make validate` — death AUROC **0.733** (mean risk), SOFA rho +0.35, no mortality supervision |
 | 21 | Distributed vs single-machine benchmark | ⬜ Pending | abstract objective #17 |
 | 22 | PG-backed live reads in dashboard | ⬜ Pending | currently replay-served |
 
@@ -45,6 +45,7 @@
 | 2026-10-19 (pm) | **HDFS live:** JDK 17 installed (`jdk17-openjdk`), `JAVA_HOME` flipped in `~/.bashrc` + `~/hadoop/conf/hadoop-env.sh`; single-node cluster (NameNode+DataNode, Hadoop 3.4.3, replication 1) started on existing fsimage; **4000 Challenge 2012 records + Outcomes-a + set-a.zip + both pipeline CSVs uploaded** to `/user/alvi/vytals/{raw,csv}` (35.9 MB); Spark↔HDFS integration verified (PySpark reads HDFS, 28 285 rows / 300 patients match local); `scripts/hdfs.sh` + `make hdfs-up/down/status/upload` |
 | 2026-10-19 (pm) | **streaming unblocked:** checkpoint path in `streaming/job.py` made repo-relative (`<repo>/checkpoints/vytals`, auto-created; `--checkpoint` flag + `VYTALS_CHECKPOINT` env); Kafka connector package version now derived from the installed pyspark (was hardcoded 3.4.1 vs runtime 3.5.9) |
 | 2026-10-21 | **streaming e2e verified on real data:** infra via `docker run` (zk+kafka on `vytal-net`, PG :5434, topic `vitals.raw` 3 partitions), producer replaying `vitals_real.csv` @ ~10 msg/s, Spark job scoring 1.6–2k windows per 30 s batch → PG (`ON CONFLICT DO NOTHING`); fixed two pyspark-3.5-on-py3.14 killers along the way: `distutils` missing in `toPandas()` (→ `setuptools` in requirements) and `RecursionError` in `createDataFrame(pandas)`/`.rdd` (→ psycopg2 sink + JVM-side emptiness check); mid-session host reboot survived (containers `--restart unless-stopped`) |
+| 2026-10-21 | **outcome validation:** `scripts/validate_outcomes.py` + `make validate` — PG risk scores vs real `Outcomes-a.txt`: **in-hospital-death AUROC 0.733** (per-patient mean risk), SOFA rho +0.351, SAPS-I +0.301, dead-vs-alive level mix separates (27.8% vs 13.8% HIGH); max-risk aggregate saturates (AUROC 0.547) — mean is the honest summary |
 
 ## 3. Recent session detail (2026-10-19)
 
@@ -79,16 +80,16 @@
 - ✅ Bug 2: PG sink died with `RecursionError: Stack overflow` — `spark.createDataFrame(pandas_df)` and `batch_df.rdd.isEmpty()` both take the Python-RDD pickle path on pyspark 3.5 + py3.14 → replaced with JVM-side `limit(1).count()` emptiness check and a **pandas → psycopg2** `INSERT … ON CONFLICT DO NOTHING` sink (reuses `risk_scores` PK for replay idempotency).
 - ✅ Host rebooted mid-session — containers were down; `docker start` + `--restart unless-stopped` (data in container layers survived), clean restart of stream + producer.
 - ✅ **E2E result (real data, XGBoost real model):** batches score 1663–2073 windows each; PG `risk_scores` grows continuously — e.g. 1903 rows / 240 patients / max risk 86.5 / levels LOW 387, MODERATE 1149, HIGH 354, CRITICAL 13 after ~2 min of replay.
+- ✅ **Outcome validation** (while replay ran): `scripts/validate_outcomes.py` joins PG scores to `Outcomes-a.txt` — **death AUROC 0.733** on per-patient mean risk, SOFA rho +0.351, SAPS-I +0.301, dead patients 2× as likely to be HIGH / ⅓ as likely LOW; max-risk AUROC 0.547 (ceiling — mean is the default `--agg`).
 
 ## 7. Next up (ordered)
 
-1. **Outcome validation**: correlate PG `risk_scores` vs `Outcomes-a.txt` (death/LOS/SAPS) — a real "does the score mean anything" check. (streaming e2e ✅ 2026-10-21 — data is landing in PG now)
-2. **API/PG live read path** in the dashboard (scores are in PG; UI still reads replay).
-3. **Hive** external table over the HDFS data (`/user/alvi/vytals/raw/physionet2012/set-a` + outcomes) + 2–3 descriptive SQL queries (abnormal-event frequency etc.).
-4. **SHAP** on the trained booster (global feature importance + per-patient explanation).
-5. **Model comparison**: LR / RF / XGBoost / IsolationForest with patient-wise CV table.
-6. **Benchmark**: single-machine (pandas) vs distributed (Spark) on the same batch — timing table for the report.
-7. **HBase** (or documented alternative) for risk-score serving.
+1. **API/PG live read path** in the dashboard (scores are in PG; UI still reads replay) — re-run `make validate` after the full 48 h replay for final numbers.
+2. **Hive** external table over the HDFS data (`/user/alvi/vytals/raw/physionet2012/set-a` + outcomes) + 2–3 descriptive SQL queries (abnormal-event frequency etc.).
+3. **SHAP** on the trained booster (global feature importance + per-patient explanation).
+4. **Model comparison**: LR / RF / XGBoost / IsolationForest with patient-wise CV table.
+5. **Benchmark**: single-machine (pandas) vs distributed (Spark) on the same batch — timing table for the report.
+6. **HBase** (or documented alternative) for risk-score serving.
 
 ## 8. Known issues / blockers
 
@@ -130,3 +131,4 @@
 | `createDataFrame(pandas)` RecursionError (py3.14) | ✅ fixed — psycopg2 sink |
 | **E2E: producer → Kafka → Spark → XGBoost → PG (real data)** | ✅ batches score 1663–2073 windows; PG 1903 rows / 240 patients / max 86.5 / LOW→CRITICAL mix, growing per 30 s trigger |
 | Host reboot resilience | ✅ containers `--restart unless-stopped`, clean resume |
+| `make validate` vs Outcomes-a (300 pts, mid-replay) | ✅ death AUROC 0.733 (mean) / 0.547 (max); SOFA +0.351, SAPS-I +0.301; level mix separates |

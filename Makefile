@@ -56,3 +56,9 @@ hdfs-status:
 
 hdfs-upload:
 	bash scripts/hdfs.sh upload
+
+validate:
+	PYTHONPATH=src $(PY) scripts/validate_outcomes.py
+
+validate-max:
+	PYTHONPATH=src $(PY) scripts/validate_outcomes.py --agg max

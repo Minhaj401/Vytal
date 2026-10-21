@@ -155,6 +155,8 @@ Everything goes through `scripts/hdfs.sh` (picks `JAVA_HOME` itself, clears stal
 | `make hdfs-upload` | push Challenge 2012 + CSVs into HDFS |
 | `make hdfs-status` | HDFS daemons + capacity report |
 | `make hdfs-down` | stop HDFS daemons |
+| `make validate` | risk scores vs real outcomes (AUROC, SOFA corr) — needs live PG (§5/§4) |
+| `make validate-max` | same, per-patient max-risk aggregate |
 
 Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/python scripts/import_physionet2012.py --help`.
 
