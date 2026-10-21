@@ -101,10 +101,16 @@ make producer                   # CSV → vitals.raw @ 60×
 #    override with --checkpoint or VYTALS_CHECKPOINT
 make stream
 
-# 5) API + dashboard, now backed by Postgres
-make api
+# 5) API + dashboard backed by the STREAM's scores in Postgres
+VYTALS_SOURCE=pg make api
 npm --prefix web run dev
+# (`make api` alone runs the zero-infra replay engine — same dashboard)
 ```
+
+> **Re-running the producer after a previous stream run?** Use a fresh checkpoint
+> (`VYTALS_CHECKPOINT=/tmp/vytals_ckpt $(py) -m vytals.streaming.job …` or delete
+> `checkpoints/vytals`) — the stream's dedupe state remembers every event it has
+> already seen and will silently drop a re-replay of the same CSV.
 
 **Stop / clean up containers:**
 
@@ -119,7 +125,7 @@ docker rm   vytal-kafka vytal-zk vytal-postgres
 The raw ICU dataset (PhysioNet Challenge 2012) lives in **HDFS** as the project's big-data source of truth; Spark reads it from `hdfs://localhost:9000`. Needs the **JDK 17** from §1 and Hadoop 3.4.x (`hadoop version`). Config sits in `~/hadoop/conf/` (`core-site.xml`, `hdfs-site.xml`, `hadoop-env.sh` — replication 1, NN/DN dirs under `~/hadoop/tmp/dfs`).
 
 ```bash
-make hdfs-up        # format (first run only) + start NameNode & DataNode
+make hdfs-up        # format (first run only) + start NameNode, DataNode & YARN (RM+NM)
 make hdfs-upload    # push set-a/ (4000 records) + outcomes + CSVs into HDFS
 make hdfs-status    # daemons + capacity + live datanodes
 make hdfs-down      # stop daemons
@@ -157,6 +163,11 @@ Everything goes through `scripts/hdfs.sh` (picks `JAVA_HOME` itself, clears stal
 | `make hdfs-down` | stop HDFS daemons |
 | `make validate` | risk scores vs real outcomes (AUROC, SOFA corr) — needs live PG (§5/§4) |
 | `make validate-max` | same, per-patient max-risk aggregate |
+| `make mr` | MapReduce on YARN — abnormal-event frequency over the raw HDFS records (objective 4) |
+| `make batch` | Spark SQL descriptive + diagnostic analytics over HDFS (objectives 10/11) |
+| `make compare` | LR / RF / XGBoost / IsolationForest patient-wise CV table (objective 13) |
+| `make shap` | SHAP global + local explanation plots → `docs/screenshots/` (objective 14) |
+| `make bench` | pandas vs Spark timing on the same 1.76 M-row batch (objective 17) |
 
 Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/python scripts/import_physionet2012.py --help`.
 
@@ -164,9 +175,11 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `VYTALS_DATA` | `data/vitals.csv` | CSV the replay engine serves |
+| `VYTALS_DATA` | `data/vitals.csv` | CSV the replay engine serves (and vitals source for pg mode) |
 | `VYTALS_MODEL` | `models/xgb_risk.json` | model artifact loaded at startup |
+| `VYTALS_SOURCE` | `replay` | `replay` = in-memory demo engine · `pg` = dashboard reads streamed scores from PostgreSQL |
 | `VYTALS_CONFIG` | `config/default.yaml` | config file path |
+| `VYTALS_CHECKPOINT` | `<repo>/checkpoints/vytals` | streaming job checkpoint dir (fresh dir = fresh dedupe state) |
 | `NEXT_PUBLIC_API` | same-origin | API base URL for the frontend (cross-origin setups) |
 
 ## 8. Ports
@@ -200,6 +213,8 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | Download from physionet.org crawls | use the AWS mirror URL from §3 |
 | Low disk (`df -h`) | HDFS/JDK/jars need ~2 GB; `docker system prune` if Docker is bloated |
 | `make hdfs-up` says no JDK 8/11/17 | install `jdk17-openjdk`; `scripts/hdfs.sh` finds it in `/usr/lib/jvm` |
+| `/api/health` says `"source":"replay"` though `VYTALS_SOURCE=pg` | `risk_scores` still empty — the API retries every 5 s and flips to `pg` automatically once the stream writes its first batch |
+| Re-produced CSV but PG stays empty | stream dedupe state ate the duplicates — restart with a fresh checkpoint (§4 note) or `TRUNCATE risk_scores` + fresh checkpoint together |
 | `hdfs dfs` fails / NameNode not running | `make hdfs-status`, then `make hdfs-up`; check `~/hadoop/logs/hadoop-alvi-namenode-*.log` |
 | `put` died with "Filesystem closed" | foreground bulk upload got killed — just re-run `make hdfs-upload` (idempotent, parallel) |
 | Dashboard shows `—` for vitals | missing readings are handled by design (never fabricated) — see FEATURES |

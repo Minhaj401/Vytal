@@ -89,13 +89,18 @@
 - ✅ **Benchmark (obj 17):** `make bench` — identical group-by over 1 757 980 readings: pandas 0.57 s (3.07 M rows/s) vs PySpark on HDFS 34.81 s (50 k rows/s) = **60.9×**; documented honestly (JVM+HDFS overhead dominates at this scale; distributed win needs multi-node data).
 - ✅ **Obj 15 decision:** PostgreSQL `risk_scores` documented as the HBase-equivalent serving store (TECHNICAL §20) — PK (patient_id, window_end) gives ms point retrieval the dashboard needs; no extra cluster on a 7.4 GB box.
 - ✅ **Dashboard PG live-read (row 22):** `store/pg_reads.py:PgLive` + `VYTALS_SOURCE=pg` mode in `api/server.py` — risk from PG `risk_scores` (3 s TTL, merge_asof refresh), vitals as-of-joined from the replayed CSV; same response shapes so the frontend needed zero changes; `/advance` → 409 in pg mode; auto-fallback to replay if PG is down; verified both modes end-to-end (300 patients / 28 270 scores / no NaN leaks; replay regression green).
+- ✅ **pg-mode robustness:** API now retries every 5 s until `risk_scores` has rows (start order no longer matters) and flips `source: replay → pg` automatically — added while staging the demo when an empty table at boot stranded the API in replay.
+- 🔧 **Dedupe-vs-replay gotcha found:** re-producing the same CSV after a prior stream run drops every message (checkpoint `dropDuplicates` state) — fixed for the demo with a fresh `VYTALS_CHECKPOINT`; documented in INSTALLATION §4 + TECHNICAL §7/§13 + troubleshooting.
+- ✅ **Demo video recorded (2026-10-21 pm):** live pipeline re-run (fresh checkpoint → producer 28 285 msgs → stream → PG full) with the dashboard in `VYTALS_SOURCE=pg`; captured 100 s via Chromium CDP screencast (puppeteer-core), encoded → `docs/demo/demo.mp4` (1.0 MB) + `demo.gif` (2.1 MB) embedded in README; frames verified (overview 300 patients, patient drill-down with charts + stream log).
+- ✅ **Docs pass:** README (demo embed + batch section), FEATURES ("coming next" → done list), INSTALLATION (pg mode, YARN, new make targets, env vars, troubleshooting), TECHNICAL (§6 live mode, §13 resolved rows, dedupe caveat), PROGRESS.
 
 ## 7. Next up (ordered)
 
-All **17 abstract objectives** and the PG live-read are complete. Remaining polish:
+All **17 abstract objectives**, the PG live-read, the demo video, and the docs pass are complete.
 
-1. **Final demo walkthrough** — `docker start vytal-zk vytal-kafka` + `make hdfs-up` + producer/stream/api (`VYTALS_SOURCE=pg make api`) and re-run the full story for the report/viva.
-2. Repo hygiene: final doc read-through.
+1. **`docs/PRESENTATION.md`** — full college-presentation write-up (architecture, workflow, user flow, accuracy tables, benchmarks, objectives↔results).
+2. **Push** — local commits to `origin/main` (GitHub: Minhaj401/Vytal).
+3. Final wrap: restart HDFS/YARN, viva demo rehearsal.
 
 ## 8. Known issues / blockers
 

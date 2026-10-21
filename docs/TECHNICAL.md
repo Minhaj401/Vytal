@@ -134,7 +134,7 @@ Two sources behind the same routes, so the frontend needs no changes:
 - Sink: `foreachBatch` → builds `FEATURE_COLS` frame (current≈window mean, slope/delta=0 — documented approximation) → model → **pandas → psycopg2** `INSERT … ON CONFLICT (patient_id, window_end) DO NOTHING` into `risk_scores`; per-batch console summary; PG failure logged, batch continues (dev-friendly).
   - Not Spark JDBC: `spark.createDataFrame(pandas_df)` and `batch_df.rdd.*` take the Python-RDD pickle path, which blows up with `RecursionError: Stack overflow` on pyspark 3.5 + Python 3.14. JVM-side `limit(1).count()` for emptiness + direct psycopg2 write sidesteps it entirely.
 - Trigger: 30 s micro-batches; `outputMode("update")`.
-- Checkpoint: `<repo>/checkpoints/vytals` (auto-created; `--checkpoint DIR` or `VYTALS_CHECKPOINT` env overrides).
+- Checkpoint: `<repo>/checkpoints/vytals` (auto-created; `--checkpoint DIR` or `VYTALS_CHECKPOINT` env overrides). **Dedupe caveat:** `dropDuplicates((patient_id, event_time, seq))` state persists in the checkpoint — re-producing the same CSV after a previous run drops every message as a duplicate; use a fresh checkpoint dir for a re-run.
 - **Verified e2e 2026-10-21:** Kafka (`vitals.raw`, 3 partitions) → Spark → PG on real data — batches score 1.6–2k windows, PG fills LOW→CRITICAL (e.g. 1903 rows / 240 patients / max 86.5 after ~2 min of replay).
 
 ### Postgres (`store/db.py`, config port **5434**)
@@ -200,8 +200,9 @@ Host port map: **5432** system PG · **5433** other project · **5434** vytals P
 | pyspark 3.5 + Python 3.14: `toPandas()` → `ModuleNotFoundError: distutils` | stream dies on first batch | resolved 2026-10-21 — `setuptools` in requirements shims distutils |
 | pyspark 3.5 + Python 3.14: `createDataFrame(pandas)` / `.rdd` → `RecursionError: Stack overflow` | PG sink unusable via Spark | resolved 2026-10-21 — psycopg2 sink + JVM-side emptiness check |
 | Legacy `docker-compose` v1 broken vs Docker 29 | use `docker run` (documented) | workaround in place |
-| PG-backed API read path exists but UI reads replay | live PG scores not yet surfaced in dashboard | open (post-MVP) |
+| ~~PG-backed API read path exists but UI reads replay~~ | ~~live PG scores not surfaced in dashboard~~ | resolved 2026-10-21 — `VYTALS_SOURCE=pg` mode (`store/pg_reads.py`), auto-retry until scores exist; replay remains default |
 | Spark jar resolution needs network on first run | cold start slower | documented |
+| Stream dedupe state vs re-replayed data | re-producing the same CSV after a prior run silently drops everything as duplicate | documented — use a fresh `VYTALS_CHECKPOINT` for a re-run (found while staging the demo video) |
 | `windowize` ~8 min on real set (28k windows) | one-time training cost | accepted |
 | SaO₂/RR sparse in Challenge 2012 | some UI gauges show `—` | dataset property, documented |
 | Java 21-only host | Spark 3.5 needs Java 8/11/17 → install JDK 17 for streaming | resolved 2026-10-19 (jdk17-openjdk; `JAVA_HOME` in `~/.bashrc` + `~/hadoop/conf/hadoop-env.sh`) |
@@ -211,7 +212,7 @@ Host port map: **5432** system PG · **5433** other project · **5434** vytals P
 Single-node HDFS (Hadoop **3.4.3**, JDK **17**, replication **1**) is the raw-data layer: the PhysioNet Challenge 2012 ICU records live in HDFS as the "big data" source of truth, and Spark reads them straight off `hdfs://localhost:9000`.
 
 - **Config:** `~/hadoop/conf/` — `core-site.xml` (`fs.defaultFS=hdfs://localhost:9000`), `hdfs-site.xml` (NN/DN dirs under `~/hadoop/tmp/dfs`, replication 1, heap-capped daemons).
-- **Lifecycle:** `make hdfs-up` (format-once + start NameNode/DataNode) · `make hdfs-down` · `make hdfs-status` · `make hdfs-upload` → all via `scripts/hdfs.sh` (also picks `JAVA_HOME` itself).
+- **Lifecycle:** `make hdfs-up` (format-once + start NameNode/DataNode **and YARN** ResourceManager/NodeManager — MapReduce needs them) · `make hdfs-down` · `make hdfs-status` · `make hdfs-upload` → all via `scripts/hdfs.sh` (also picks `JAVA_HOME` itself).
 - **Layout:**
 
   ```

@@ -7,7 +7,7 @@ Two data sources (VYTALS_SOURCE):
                      `make producer` + `make stream` run
 """
 from __future__ import annotations
-import math, os, threading
+import math, os, threading, time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
@@ -40,7 +40,16 @@ async def lifespan(_app: FastAPI):
         try:
             get_pg()
         except Exception as e:
-            print(f"pg source unavailable ({e}) — falling back to replay")
+            print(f"pg source unavailable ({e}) — retrying every 5s; replay serves until then")
+            def _pg_retry():
+                while SOURCE == "pg" and PG is None:
+                    time.sleep(5)
+                    try:
+                        get_pg()
+                        print(f"pg source connected — now serving streamed scores ({PG.stats()})")
+                    except Exception as e2:
+                        print(f"pg retry: {e2}")
+            threading.Thread(target=_pg_retry, daemon=True).start()
     if PG is None:
         try:
             get_replay()

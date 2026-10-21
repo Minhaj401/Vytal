@@ -72,13 +72,18 @@ Both modes produce the same dashboard and the same risk scores.
 - **Not a medical device.** It is an academic prototype and decision-support demonstration. It does not diagnose, does not replace clinical judgement, and is not certified for patient care.
 - The "ground truth" the model learns from is a transparent set of physiology rules (not hospital-labelled outcomes) — this makes the model explainable but is a stand-in for clinical validation.
 
-## What's coming next
+## What it does today (all demonstrated)
 
-- **HDFS** — distributed file storage for the raw vital-sign data (large-scale storage story)
-- **Streaming validation** — end-to-end run of Kafka → Spark → Postgres on the real dataset
-- **Model health check** — comparing risk scores against the real hospital outcomes in the dataset
-- **Explainability** — showing *which* vital drove each patient's score (SHAP)
-- **Distributed vs single-machine benchmark** — measuring the speed-up the big-data pipeline gives
+- **Distributed storage (HDFS)** — the raw 4 000-record ICU dataset lives in HDFS as the big-data source of truth; Spark reads it directly.
+- **MapReduce batch layer** — abnormal-event frequency computed across 1.76 million readings on YARN (seconds).
+- **Spark SQL batch analytics** — descriptive distributions, correlations, and joins against real hospital outcomes.
+- **End-to-end streaming validation** — Kafka → Spark Structured Streaming → PostgreSQL, verified live on the real dataset.
+- **Model health check** — streamed risk scores vs real hospital outcomes: death-discrimination AUROC ≈ 0.72 without ever training on mortality.
+- **Explainability (SHAP)** — per-feature global and per-patient explanations of every risk score.
+- **Benchmark** — single-machine (pandas) vs distributed (Spark) processing measured on the same batch.
+- **Live dashboard from streamed scores** — the API can serve the dashboard straight from PostgreSQL, so what you see is what the pipeline actually wrote.
+
+Everything above is documented with its measured numbers in [TECHNICAL.md](TECHNICAL.md).
 
 ## Quick glossary
 
