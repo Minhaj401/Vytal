@@ -12,3 +12,6 @@ checkpoints/
 # real dataset (regenerable via `make real-data`; raw PhysioNet files are large)
 data/physionet2012/
 data/vitals_real.csv
+
+# batch-experiment caches (rebuilt by the scripts, ~30 MB)
+data/cache/

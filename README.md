@@ -140,6 +140,21 @@ make hdfs-status    # cluster report
 
 Spark reads the raw data straight from `hdfs://localhost:9000/user/alvi/vytals/…`; details in [TECHNICAL §14](docs/TECHNICAL.md).
 
+### D. Batch analytics — MapReduce + Spark SQL + ML experiments
+
+Needs `make hdfs-up` + `make hdfs-upload` first (Spark/`compare`/`shap` also use the local `data/cache/` window cache, rebuilt on first run):
+
+```bash
+make mr       # objective 4  — MapReduce on YARN: abnormal-event frequency over 1.76M readings (15 s)
+make batch    # objectives 10/11 — Spark SQL descriptive + diagnostic analytics over HDFS
+make compare  # objective 13 — LR/RF/XGBoost/IsolationForest, patient-wise CV table
+make shap     # objective 14 — SHAP global + local plots → docs/screenshots/
+make bench    # objective 17 — pandas vs Spark timing on the same 1.76M-row batch
+make validate # outcome validation — streamed scores vs real ICU mortality (AUROC 0.715)
+```
+
+Measured highlights (full tables in [TECHNICAL §16–20](docs/TECHNICAL.md)): XGBoost wins the model race (F1 0.882 vs RF 0.775 / LR 0.168); SHAP ranks `hr_max`, `temp`, `sbp` on top (sane physiology); pandas beats single-node Spark 60.9× at this scale — reported honestly, the distributed win needs multi-node data.
+
 ### CI/CD
 
 `.github/workflows/ci.yml` on every push/PR:
@@ -159,8 +174,8 @@ model:     path: models/xgb_risk.json, version: v1
 
 ## Honest limitations
 
-- Risk "truth" is rule-based labels + noise — a demo stand-in for a clinically validated target.
-- API defaults to in-memory replay; PG-backed read path exists but dashboard reads replay unless wired.
+- Risk "truth" is rule-based labels + noise — a demo stand-in for a clinically validated target. External check: streamed scores reach death AUROC 0.715 vs real `Outcomes-a.txt` without ever seeing a death label.
+- API defaults to in-memory replay; streamed scores live in PG (`risk_scores`, read by `make validate`) but the dashboard doesn't read them yet.
 - Streaming sink approximates slope/delta as 0 and current≈window mean; training uses full trailing windows. Feature impl is shared via `build_features()` to avoid drift, but the Spark mini-window is coarser than batch.
 - Legacy `docker-compose` v1 on this host breaks against Docker 29 — use `docker run` or upgrade to the compose plugin.
 - Port map on this host: 5432 = system pg, 5433 = care stack, **5434 = vytals pg**, 9092 = vytals kafka.

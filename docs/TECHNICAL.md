@@ -230,4 +230,65 @@ Measured on the live e2e replay (300 patients, mid-replay, 2026-10-21):
 | Spearman vs SOFA / SAPS-I / LOS | +0.351 / +0.301 / +0.096 |
 | level mix | dead: 27.8% HIGH, 9.7% LOW — alive: 13.8% HIGH, 29.3% LOW |
 
-Read: the model was never shown a death label, yet separates decedents at AUROC ≈ 0.73 and tracks SOFA — exactly the sanity check a rule-derived target should pass. Max-risk is the wrong aggregate (everyone's worst 5-min window is abnormal); mean over the stay discriminates.
+Read: the model was never shown a death label, yet separates decedents at AUROC ≈ 0.73 and tracks SOFA — exactly the sanity check a rule-derived target should pass. Max-risk is the wrong aggregate (everyone's worst 5-min window is abnormal); mean over the stay discriminates. **Final numbers after the full 48 h replay** (all 300 patients scored, `make validate`): death AUROC **0.715**, SOFA ρ +0.337, SAPS-I +0.322 — stable vs the mid-replay snapshot above.
+
+## 16. Batch processing layer — MapReduce on YARN (objective 4)
+
+`scripts/mr/{abnormal_mapper,abnormal_reducer}.py` run through **hadoop-streaming 3.4.3 on YARN** — the classic MapReduce job over the raw long-format records in HDFS.
+
+- **Job:** abnormal-event frequency per vital across all 4000 ICU records (1 757 980 readings). Mapper thresholds mirror the risk rules (HR <50/>120, SaO₂ <90, RespRate <8/>30, Temp <35/>38.5, Sys/Dias ABP <90/>180 & <50/>110, invasive and non-invasive); missing values (`-1`, junk) are never counted. Reducer sums `total` / `abnormal` per param.
+- **Run:** `make mr` (`scripts/mr/run.sh`) — merges the 4000 tiny per-patient files into one 26 MB `set-a_all.txt` first, then submits. Result: `hdfs dfs -cat /user/alvi/vytals/mr/abnormal_freq/part-*`.
+- **Result (15 s wall, 1 map + 1 reduce, 512 MB containers):**
+
+  | param | readings | abnormal | % |
+  |---|---|---|---|
+  | NIDiasABP | 98 210 | 30 148 | 30.70 |
+  | DiasABP | 145 567 | 30 970 | 21.28 |
+  | SysABP | 145 650 | 13 580 | 9.32 |
+  | NISysABP | 98 331 | 8 081 | 8.22 |
+  | HR | 228 538 | 12 513 | 5.48 |
+  | Temp | 86 405 | 4 369 | 5.06 |
+  | RespRate | 55 051 | 2 351 | 4.27 |
+  | SaO₂ | 8 185 | 188 | 2.30 |
+
+- **Small-files lesson:** one file per patient is the realistic ICU shape but produced **4000 map tasks** (~1 JVM container each ≈ 75 min). Merging to a single split → one mapper, 15 s. (`CombineFileInputFormat` / `NLineInputFormat` were tried first — streaming's old-API `-inputformat` only accepts `mapred` classes and the `linespermap` key didn't take; the merge is simpler and deterministic.)
+- **YARN sizing (lab box, 7.4 GB):** `yarn-site.xml` gives the NodeManager 4096 MB / 6 vcores with 512 MB map+reduce containers — the first attempt (1024 MB total) deadlocked because the 256 MB AM + a 1024 MB map could never co-schedule. `make hdfs-up` now starts ResourceManager + NodeManager alongside HDFS.
+
+## 17. Descriptive & diagnostic analytics — Spark SQL (objectives 10/11)
+
+`scripts/batch_analytics.py` (`make batch`) — one PySpark session over the HDFS copy of the canonical CSV (28 285 rows / 300 patients), plain SQL/DataFrame queries at cluster-scale:
+
+- **Descriptive:** per-vital distribution (n, mean, std, min, p50, max) and abnormal-event rate using the same thresholds as the MapReduce job — e.g. HR 5.17 % abnormal, DBP 27.95 %, SBP 11.29 %.
+- **Diagnostic:** pairwise Pearson correlations (sbp–dbp +0.524, hr–spo₂ −0.319, hr–rr +0.119 …); abnormal-event co-occurrence in the same reading; and a patient-level join against real `Outcomes-a.txt` — vital-derangement rates track **SOFA** (hr_abn ρ +0.123, hypox_rate +0.157, spo₂_mean −0.158) more than SAPS-I, confirming the streaming risk story in the batch layer.
+
+## 18. Model comparison & SHAP (objectives 13/14)
+
+- **Comparison — `scripts/compare_models.py` (`make compare`):** 27 886 windows / 300 patients, **patient-wise** 5-fold `GroupShuffleSplit` (no leakage), target = rule-derived risk ≥ 50 (HIGH+):
+
+  | model | Precision | Recall | F1 | AUROC |
+  |---|---|---|---|---|
+  | LogisticRegression | 0.390 | 0.109 | 0.168 | 0.904 |
+  | RandomForest | 0.988 | 0.645 | 0.775 | 0.997 |
+  | **XGBoost** | **0.993** | **0.797** | **0.882** | **0.997** |
+  | IsolationForest* | — | — | — | 0.930 |
+
+  \* unsupervised — AUROC only. XGBoost wins on F1 and is the model shipped in the stream. Honest caveat: labels are rule-derived from the same physiology, so AUROC ≈ 1.0 measures separability of the rule, not clinical accuracy — the external check is §15.
+- **SHAP — `scripts/shap_explain.py` (`make shap`):** TreeExplainer on the real booster. Global top features: `hr_max` 3.80, `temp_c_current` 1.99, `dbp_min` 1.50, `sbp_current` 1.33, `sbp_min` 1.15 — same physiology the trainer logs as gain. Plots: `docs/screenshots/shap_global.png` (mean |SHAP| per feature) and `shap_patient.png` (local explanation for the riskiest window).
+
+## 19. Single-machine vs distributed benchmark (objective 17)
+
+`scripts/benchmark.py` (`make bench`) runs **the identical aggregation** (per-patient × param group-by over all 1 757 980 raw readings, 42 groups) on both engines:
+
+| engine | wall time | throughput | data path |
+|---|---|---|---|
+| single-machine — pandas | **0.57 s** | 3 073 987 rows/s | local CSV |
+| distributed — PySpark `local[*]` | **34.81 s** | 50 496 rows/s | HDFS `hdfs://localhost:9000` |
+
+Relative: Spark/pandas = **60.9×** at this scale — honest reading: on one 8-core lab host, JVM/session startup and HDFS read overhead dominate; the distributed win appears when the data exceeds one machine (the same Spark code paths to a multi-node cluster with no rewrite). The comparison is reported as measured, not spun.
+
+## 20. Risk-score serving storage (objective 15)
+
+The abstract allows "HBase **or another appropriate technology**" — this project uses **PostgreSQL** (already required for the streaming sink) instead of standing up an HBase cluster on a 7.4 GB lab box:
+
+- `risk_scores(patient_id, window_end, …)` with **PK (patient_id, window_end)** — point retrieval of one patient's score series in milliseconds, exactly the dashboard's access pattern; the streaming sink upserts with `ON CONFLICT DO NOTHING` for replay idempotency.
+- Written by the Spark stream, read by `make validate` (§15) and ready for the dashboard's live path — low-latency, indexed, durable. HBase's wide-column/region model would pay off at thousands of concurrent patient-window lookups per second; that's out of scope for a single-node demo and would add an entire extra cluster to operate.

@@ -62,3 +62,24 @@ validate:
 
 validate-max:
 	PYTHONPATH=src $(PY) scripts/validate_outcomes.py --agg max
+
+# --- batch analytics layer (needs: make hdfs-up && make hdfs-upload) ---
+# objective 4 — MapReduce on YARN (abnormal-event frequency over raw records)
+mr:
+	bash scripts/mr/run.sh
+
+# objectives 10/11 — descriptive + diagnostic Spark SQL over HDFS
+batch:
+	PYTHONPATH=src JAVA_HOME=$${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk} $(PY) scripts/batch_analytics.py
+
+# objective 13 — LR / RF / XGBoost / IsolationForest patient-wise CV table
+compare:
+	PYTHONPATH=src $(PY) scripts/compare_models.py
+
+# objective 14 — SHAP global + local explanations -> docs/screenshots/
+shap:
+	PYTHONPATH=src MPLCONFIGDIR=/tmp/mpl $(PY) scripts/shap_explain.py
+
+# objective 17 — single-machine (pandas) vs distributed (Spark on HDFS) timing
+bench:
+	PYTHONPATH=src JAVA_HOME=$${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk} $(PY) scripts/benchmark.py

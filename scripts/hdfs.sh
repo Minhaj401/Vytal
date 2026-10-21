@@ -36,6 +36,10 @@ daemons_up() {
   pgrep -f "proc_namenode" >/dev/null 2>&1 && pgrep -f "proc_datanode" >/dev/null 2>&1
 }
 
+yarn_up() {
+  pgrep -f "proc_resourcemanager" >/dev/null 2>&1 && pgrep -f "proc_nodemanager" >/dev/null 2>&1
+}
+
 do_up() {
   echo "JAVA_HOME=$JAVA_HOME  HADOOP_CONF_DIR=$HADOOP_CONF_DIR"
   # stale pid files block startup
@@ -50,7 +54,7 @@ do_up() {
   fi
 
   if daemons_up; then
-    echo "==> daemons already running"
+    echo "==> HDFS daemons already running"
   else
     echo "==> starting NameNode + DataNode"
     hdfs --daemon start namenode
@@ -58,11 +62,22 @@ do_up() {
     hdfs --daemon start datanode
     sleep 3
   fi
+  if yarn_up; then
+    echo "==> YARN daemons already running"
+  else
+    echo "==> starting ResourceManager + NodeManager (MapReduce needs YARN)"
+    yarn --daemon start resourcemanager
+    sleep 2
+    yarn --daemon start nodemanager
+    sleep 3
+  fi
   do_status
 }
 
 do_down() {
-  echo "==> stopping HDFS daemons"
+  echo "==> stopping HDFS + YARN daemons"
+  yarn --daemon stop nodemanager 2>/dev/null || true
+  yarn --daemon stop resourcemanager 2>/dev/null || true
   hdfs --daemon stop datanode 2>/dev/null || true
   hdfs --daemon stop namenode 2>/dev/null || true
   echo "stopped"
@@ -76,6 +91,7 @@ do_status() {
   echo "HDFS: UP"
   hdfs dfsadmin -report 2>/dev/null | grep -E "Configured Capacity|DFS Remaining:|DFS Used:|Live datanodes"
   echo "safemode: $(hdfs dfsadmin -safemode get 2>/dev/null | tail -1)"
+  if yarn_up; then echo "YARN: UP"; else echo "YARN: DOWN (MapReduce will fail — run: scripts/hdfs.sh up)"; fi
 }
 
 do_upload() {

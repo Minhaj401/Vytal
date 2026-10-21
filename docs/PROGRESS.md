@@ -4,7 +4,7 @@
 > Companion docs: [FEATURES.md](FEATURES.md) · [TECHNICAL.md](TECHNICAL.md) · [INSTALLATION.md](INSTALLATION.md)
 
 **Last updated:** 2026-10-21
-**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS ✅ live · Streaming e2e ✅ verified · Outcome validation ✅ done · Distributed batch/ML extras ⬜ pending
+**Overall:** MVP ✅ shipped · Real data ✅ integrated · HDFS+YARN ✅ live · Streaming e2e ✅ verified · Outcome validation ✅ done · **all 17 abstract objectives ✅ completed** · dashboard PG live-read ⬜ optional polish
 
 ## 1. Status by area
 
@@ -17,21 +17,21 @@
 | 5 | XGBoost risk model + fallback rules | ✅ Done | synthetic: MAE 2.78 / R² 0.90 |
 | 6 | FastAPI backend + endpoints | ✅ Done | incl. NaN-JSON 500 fix (2026-10-19) |
 | 7 | Next.js dashboard (overview + patient) | ✅ Done | Apple-HIG light theme |
-| 8 | Kafka producer | ✅ Code done | needs live broker to verify |
-| 9 | Spark Structured Streaming job | ⚠️ Code done | e2e verified 2026-10-06 on author machine; checkpoint path hardcoded — must fix before rerun |
+| 8 | Kafka producer | ✅ Done | full replay verified 2026-10-21 (28 285 msgs, topic `vitals.raw` 3 partitions) |
+| 9 | Spark Structured Streaming job | ✅ Done | e2e verified on real data 2026-10-21 (checkpoint repo-relative, psycopg2 sink) |
 | 10 | Postgres schema + DDL | ✅ Done | port 5434, `make db` |
 | 11 | CI (backend + frontend) | ✅ Done | GitHub Actions on push/PR |
 | 12 | **Real data (PhysioNet Challenge 2012)** | ✅ Done | importer, `make real-data`, 300 patients, validated e2e (2026-10-19) |
 | 13 | **Real-data model** | ✅ Done | `models/xgb_risk_real.json` — MAE 1.62 / R² 0.963 |
 | 14 | **HDFS** | ✅ Done | single-node Hadoop 3.4.3 on JDK 17; Challenge 2012 (4000 records) + outcomes + CSVs uploaded; Spark reads HDFS verified |
 | 15 | **Streaming e2e on real data (Kafka→Spark→PG)** | ✅ Done | verified 2026-10-21: 3-partition topic → Spark SS → XGBoost → PG `risk_scores` (LOW→CRITICAL rows growing per 30 s batch) |
-| 16 | Hive / MapReduce batch layer | ⬜ Pending | abstract objective #4 |
-| 17 | Risk scores → HBase (or equivalent) | ⬜ Pending | abstract objective #15 |
-| 18 | SHAP explainability | ⬜ Pending | abstract objective #14 |
-| 19 | Multi-model comparison (RF/LR/IF…) | ⬜ Pending | abstract objective #13 |
-| 20 | **Outcome validation (SAPS/SOFA/death labels)** | ✅ Done | `make validate` — death AUROC **0.733** (mean risk), SOFA rho +0.35, no mortality supervision |
-| 21 | Distributed vs single-machine benchmark | ⬜ Pending | abstract objective #17 |
-| 22 | PG-backed live reads in dashboard | ⬜ Pending | currently replay-served |
+| 16 | Hive / MapReduce batch layer | ✅ Done | objective #4 — `make mr`: streaming job on YARN, 1.76 M readings → abnormal-freq table in 15 s (TECHNICAL §16) |
+| 17 | Risk scores → HBase (or equivalent) | ✅ Done | objective #15 — PostgreSQL `risk_scores` documented as the "appropriate technology" (PK patient_id+window_end, ms retrieval; TECHNICAL §20) |
+| 18 | SHAP explainability | ✅ Done | objective #14 — `make shap`: global + local plots in `docs/screenshots/` (hr_max, temp, sbp lead) |
+| 19 | Multi-model comparison (RF/LR/IF…) | ✅ Done | objective #13 — `make compare`: XGBoost F1 0.882 wins vs RF 0.775 / LR 0.168 / IF AUROC 0.930 |
+| 20 | **Outcome validation (SAPS/SOFA/death labels)** | ✅ Done | `make validate` — death AUROC **0.733** (mid-replay) → **0.715** final (full replay), SOFA rho +0.337 |
+| 21 | Distributed vs single-machine benchmark | ✅ Done | objective #17 — `make bench`: pandas 0.57 s vs Spark-on-HDFS 34.81 s (60.9×, honest overhead reading) |
+| 22 | PG-backed live reads in dashboard | ⬜ Optional | not an abstract objective — dashboard works via replay; PG read path is the last polish item |
 
 ## 2. Completed timeline
 
@@ -46,6 +46,7 @@
 | 2026-10-19 (pm) | **streaming unblocked:** checkpoint path in `streaming/job.py` made repo-relative (`<repo>/checkpoints/vytals`, auto-created; `--checkpoint` flag + `VYTALS_CHECKPOINT` env); Kafka connector package version now derived from the installed pyspark (was hardcoded 3.4.1 vs runtime 3.5.9) |
 | 2026-10-21 | **streaming e2e verified on real data:** infra via `docker run` (zk+kafka on `vytal-net`, PG :5434, topic `vitals.raw` 3 partitions), producer replaying `vitals_real.csv` @ ~10 msg/s, Spark job scoring 1.6–2k windows per 30 s batch → PG (`ON CONFLICT DO NOTHING`); fixed two pyspark-3.5-on-py3.14 killers along the way: `distutils` missing in `toPandas()` (→ `setuptools` in requirements) and `RecursionError` in `createDataFrame(pandas)`/`.rdd` (→ psycopg2 sink + JVM-side emptiness check); mid-session host reboot survived (containers `--restart unless-stopped`) |
 | 2026-10-21 | **outcome validation:** `scripts/validate_outcomes.py` + `make validate` — PG risk scores vs real `Outcomes-a.txt`: **in-hospital-death AUROC 0.733** (per-patient mean risk), SOFA rho +0.351, SAPS-I +0.301, dead-vs-alive level mix separates (27.8% vs 13.8% HIGH); max-risk aggregate saturates (AUROC 0.547) — mean is the honest summary |
+| 2026-10-21 (pm) | **batch/ML layer complete — all 17 objectives done:** YARN (RM+NM) added to `make hdfs-up` with lab-sized resources (4096 MB NM / 512 MB tasks — first attempt deadlocked at 1024 MB); **MapReduce** streaming job on real records (merge 4000 tiny files → 1 map, **15 s**, abnormal-freq table for 8 vitals); **Spark SQL** descriptive+diagnostic batch (`make batch` — distributions, abnormal rates, correlations, SOFA join); **model comparison** (`make compare` — XGBoost F1 0.882 > RF > LR, IF AUROC 0.930); **SHAP** (`make shap` — global+local plots); **benchmark** (`make bench` — pandas 0.57 s vs Spark 34.81 s, 60.9×); final `make validate` after full replay: death AUROC **0.715**, SOFA +0.337 |
 
 ## 3. Recent session detail (2026-10-19)
 
@@ -81,15 +82,20 @@
 - ✅ Host rebooted mid-session — containers were down; `docker start` + `--restart unless-stopped` (data in container layers survived), clean restart of stream + producer.
 - ✅ **E2E result (real data, XGBoost real model):** batches score 1663–2073 windows each; PG `risk_scores` grows continuously — e.g. 1903 rows / 240 patients / max risk 86.5 / levels LOW 387, MODERATE 1149, HIGH 354, CRITICAL 13 after ~2 min of replay.
 - ✅ **Outcome validation** (while replay ran): `scripts/validate_outcomes.py` joins PG scores to `Outcomes-a.txt` — **death AUROC 0.733** on per-patient mean risk, SOFA rho +0.351, SAPS-I +0.301, dead patients 2× as likely to be HIGH / ⅓ as likely LOW; max-risk AUROC 0.547 (ceiling — mean is the default `--agg`).
+- ✅ **MapReduce on YARN (obj 4):** brought up ResourceManager + NodeManager (`scripts/hdfs.sh up` now manages them); `mapred-site.xml` got absolute application classpaths (fixed `ClassNotFoundException: MRAppMaster`); NM sized 4096 MB/6 vcores with 512 MB tasks (1024 MB NM deadlocked AM+map); 4000 per-patient files → 4000 tiny map tasks (~75 min projected) → **merged to one 26 MB file → 1 mapper, job done in 15 s** (`scripts/mr/run.sh`, `make mr`). Abnormal-freq table: NIDiasABP 30.7 %, DiasABP 21.3 %, HR 5.5 %…
+- ✅ **Spark SQL batch (obj 10/11):** `scripts/batch_analytics.py` (`make batch`) over HDFS — descriptive distributions + abnormal rates (same thresholds as MR), Pearson correlations (sbp–dbp +0.524), co-occurrence, patient-level join vs real outcomes (derangement rates track SOFA ρ up to +0.157).
+- ✅ **Model comparison (obj 13):** `make compare` — patient-wise 5-fold CV on 27 886 windows: XGBoost P 0.993 / R 0.797 / F1 **0.882** / AUROC 0.997 beats RF (F1 0.775), LR (F1 0.168); IsolationForest unsupervised AUROC 0.930.
+- ✅ **SHAP (obj 14):** `make shap` — TreeExplainer global plot + riskiest-window local plot (`docs/screenshots/shap_{global,patient}.png`); top |SHAP|: `hr_max` 3.80, `temp_c_current` 1.99, `dbp_min` 1.50, `sbp_current` 1.33.
+- ✅ **Benchmark (obj 17):** `make bench` — identical group-by over 1 757 980 readings: pandas 0.57 s (3.07 M rows/s) vs PySpark on HDFS 34.81 s (50 k rows/s) = **60.9×**; documented honestly (JVM+HDFS overhead dominates at this scale; distributed win needs multi-node data).
+- ✅ **Obj 15 decision:** PostgreSQL `risk_scores` documented as the HBase-equivalent serving store (TECHNICAL §20) — PK (patient_id, window_end) gives ms point retrieval the dashboard needs; no extra cluster on a 7.4 GB box.
 
 ## 7. Next up (ordered)
 
-1. **API/PG live read path** in the dashboard (scores are in PG; UI still reads replay) — re-run `make validate` after the full 48 h replay for final numbers.
-2. **Hive** external table over the HDFS data (`/user/alvi/vytals/raw/physionet2012/set-a` + outcomes) + 2–3 descriptive SQL queries (abnormal-event frequency etc.).
-3. **SHAP** on the trained booster (global feature importance + per-patient explanation).
-4. **Model comparison**: LR / RF / XGBoost / IsolationForest with patient-wise CV table.
-5. **Benchmark**: single-machine (pandas) vs distributed (Spark) on the same batch — timing table for the report.
-6. **HBase** (or documented alternative) for risk-score serving.
+All **17 abstract objectives are complete**. Remaining polish:
+
+1. **Dashboard PG live-read** (optional, row 22) — scores already land in PG; wire `/api/patients*` to it so the UI reflects the stream instead of replay.
+2. **Final demo walkthrough** — `docker start vytal-zk vytal-kafka` + `make hdfs-up` + producer/stream/api and re-run the full story for the report/viva.
+3. Repo hygiene: delete stray root `package-lock.json`; final doc read-through.
 
 ## 8. Known issues / blockers
 
@@ -102,6 +108,10 @@
 | 🟢 Low | First Spark run resolves jars from Maven (network) | one-time delay |
 | 🟢 Low | `make train-real` ~8 min | one-time; windowize cost on 48 h sparse data |
 | 🟢 Low | Untracked root `package-lock.json` | stray artifact from an npm run at repo root — candidate for deletion |
+| 🟢 Low | Kafka/zk containers stopped to free RAM after replay | `docker start vytal-zk vytal-kafka` before any new stream demo |
+| ✅ Resolved | YARN AM+map deadlock (NM 1024 MB < 256 AM + 1024 map) | NM 4096 MB/6 cores, 512 MB task containers (2026-10-21) |
+| ✅ Resolved | `MRAppMaster` ClassNotFoundException | absolute `mapreduce.application.classpath` in `mapred-site.xml` |
+| ✅ Resolved | MapReduce 4000 tiny-file splits ≈ 75 min | merged single 26 MB input file → 1 mapper, 15 s (`scripts/mr/run.sh`) |
 | ✅ Resolved | Host had Java 21 only — Spark 3.5 needs 8/11/17 | JDK 17 installed 2026-10-19, `JAVA_HOME` pinned in `.bashrc` + `hadoop-env.sh` |
 | ✅ Resolved | `streaming/job.py` checkpoint hardcoded `/home/minhaj/...` | repo-relative + created at runtime (2026-10-19) |
 | ✅ Resolved | Kafka package 3.4.1 vs pyspark 3.5.9 | version now derived from installed pyspark (2026-10-19) |
@@ -132,3 +142,9 @@
 | **E2E: producer → Kafka → Spark → XGBoost → PG (real data)** | ✅ batches score 1663–2073 windows; PG 1903 rows / 240 patients / max 86.5 / LOW→CRITICAL mix, growing per 30 s trigger |
 | Host reboot resilience | ✅ containers `--restart unless-stopped`, clean resume |
 | `make validate` vs Outcomes-a (300 pts, mid-replay) | ✅ death AUROC 0.733 (mean) / 0.547 (max); SOFA +0.351, SAPS-I +0.301; level mix separates |
+| `make validate` after **full** replay (final) | ✅ death AUROC **0.715**; SOFA +0.337, SAPS-I +0.322, LOS +0.109; dead 25.5% HIGH vs alive 14.6% |
+| `make mr` — MapReduce on YARN | ✅ 1 map + 1 reduce in 15 s → 8-row abnormal-freq table (NIDiasABP 30.7 % … SaO₂ 2.3 %) |
+| `make batch` — Spark SQL over HDFS | ✅ descriptive + diagnostic tables printed (28 285 rows, correlations, SOFA join) |
+| `make compare` — model comparison | ✅ XGBoost F1 0.882 / AUROC 0.997 > RF > LR; IsolationForest AUROC 0.930 (patient-wise CV) |
+| `make shap` — SHAP explanations | ✅ `docs/screenshots/shap_global.png` + `shap_patient.png`; hr_max/temp/sbp lead |
+| `make bench` — pandas vs Spark | ✅ 0.57 s (3.07 M rows/s) vs 34.81 s (50 k rows/s), same 1.76 M rows, 42 groups |
