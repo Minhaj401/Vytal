@@ -192,6 +192,7 @@ Run any Python module directly for options, e.g. `PYTHONPATH=src .venv/bin/pytho
 | Spark fails immediately mentioning Java | wrong JDK: need 8/11/17, set `JAVA_HOME`, `java -version` to confirm |
 | Spark job fails on checkpoint / permission | checkpoint defaults to `<repo>/checkpoints/vytals` (auto-created); pass `--checkpoint /writable/dir` if needed |
 | `make db` connection refused | Postgres container not up, or wrong port (must be 5434) |
+| `ModuleNotFoundError: No module named 'distutils'` in the stream job | `pip install setuptools` in the venv — py3.12+ removed distutils, pyspark still imports it (it's in `requirements.txt`) |
 | `docker compose` KeyError / ContainerConfig | legacy compose v1 vs Docker 29 — use `docker run` (§4) |
 | `make train-real` seems stuck (~8 min) | normal — windowizing 48 h sparse records; model log prints when training starts |
 | Download from physionet.org crawls | use the AWS mirror URL from §3 |

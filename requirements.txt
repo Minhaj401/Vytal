@@ -9,6 +9,8 @@ kafka-python>=2.0.2
 
 # spark
 pyspark>=3.4,<4.0
+# py3.12+ removed distutils; pyspark toPandas() still imports it (setuptools shims it)
+setuptools>=68
 
 # ml
 xgboost>=2.0

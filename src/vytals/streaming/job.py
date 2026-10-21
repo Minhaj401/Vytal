@@ -81,16 +81,17 @@ def main():
                 F.count("*").alias("n_rows"))
            .withColumn("window_end", F.col("window_end").cast("string")))
 
-    # ML inference + Postgres sink via foreachBatch (loads RiskModel once per executor batch on driver)
-    pg_url = f"jdbc:postgresql://{pg['host']}:{pg['port']}/{pg['db']}"
-    pg_props = {"user": pg["user"], "password": pg["password"], "driver": "org.postgresql.Driver"}
-
+    # ML inference + Postgres sink via foreachBatch (loads RiskModel once per batch on driver).
+    # PG writes go pandas -> psycopg2 directly: spark.createDataFrame(pandas_df) takes the
+    # Python-RDD pickle path on pyspark 3.5 + py3.14 and dies with RecursionError.
     model_path = a.model
     state = {"model": None}
 
     def write_batch(batch_df, batch_id):
         import pandas as pd
-        if batch_df.rdd.isEmpty():
+        # JVM-side emptiness check — batch_df.rdd.isEmpty() blows up Python
+        # serialization (RecursionError/stack overflow) under pyspark 3.5 + py3.14
+        if batch_df.limit(1).count() == 0:
             return
         if state["model"] is None:
             from vytals.ml.risk_model import RiskModel
@@ -126,13 +127,26 @@ def main():
                 feats[c] = 0.0
         res = state["model"].predict(feats)
         res["window_start"] = pdf["w"].apply(lambda w: str(w["start"]) if w is not None else None).values if "w" in pdf else None
-        # write to postgres (create table if needed elsewhere) + console
+        # write to postgres (table created by `make db`) + console
         try:
-            from pyspark.sql import functions as _F
-            sdf = (batch_df.sparkSession.createDataFrame(res)
-                   .withColumn("window_end", _F.to_timestamp("window_end"))
-                   .withColumn("window_start", _F.to_timestamp("window_start")))
-            sdf.write.jdbc(pg_url, "risk_scores", mode="append", properties=pg_props)
+            import psycopg2
+            from psycopg2.extras import execute_values
+            conn = psycopg2.connect(host=pg["host"], port=pg["port"], dbname=pg["db"],
+                                    user=pg["user"], password=pg["password"], connect_timeout=5)
+            try:
+                rows = [tuple(None if pd.isna(v) else v for v in row)
+                        for row in res[["patient_id", "window_end", "window_start",
+                                        "p_risk", "risk_score", "risk_level"]].itertuples(index=False, name=None)]
+                with conn.cursor() as cur:
+                    execute_values(cur, """
+                        INSERT INTO risk_scores
+                          (patient_id, window_end, window_start, p_risk, risk_score, risk_level)
+                        VALUES %s
+                        ON CONFLICT (patient_id, window_end) DO NOTHING
+                    """, rows)
+                conn.commit()
+            finally:
+                conn.close()
         except Exception as e:
             print(f"[batch {batch_id}] pg write failed (ok in dev): {e}")
         print(f"[batch {batch_id}] scored {len(res)} windows; top={res.sort_values('risk_score', ascending=False).head(3).to_dict('records')}")

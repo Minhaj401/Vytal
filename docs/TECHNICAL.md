@@ -118,11 +118,13 @@ Powers the dashboard with **zero infrastructure** (no Kafka/Spark/Java):
 - Fail-fast: `max_block_ms=8000` + explicit `SystemExit` with a start-infra hint when no broker.
 
 ### Spark job (`streaming/job.py`)
-- Session: `spark.jars.packages` pulls `spark-sql-kafka-0-10_2.12` + `postgresql` JDBC at startup (needs network/Ivy cache on first run).
+- Session: `spark.jars.packages` pulls `spark-sql-kafka-0-10_2.12` (**version matched to the installed pyspark at runtime**) + `postgresql` JDBC at startup (needs network/Ivy cache on first run).
 - Pipeline: raw Kafka → `from_json` on declared schema → `to_timestamp` + `coalesce(patient_id, k)` → filter nulls → `withWatermark("event_ts","2 minutes")` → `dropDuplicates(["patient_id","event_time","seq"])` → `groupBy(patient_id, window(event_ts, "5 minutes","1 minute"))` with avg/stddev/min/max + `window_end`, `n_rows`.
-- Sink: `foreachBatch` → builds `FEATURE_COLS` frame (current≈window mean, slope/delta=0 — documented approximation) → model → JDBC append into `risk_scores`; per-batch console summary; PG failure logged, batch continues (dev-friendly).
+- Sink: `foreachBatch` → builds `FEATURE_COLS` frame (current≈window mean, slope/delta=0 — documented approximation) → model → **pandas → psycopg2** `INSERT … ON CONFLICT (patient_id, window_end) DO NOTHING` into `risk_scores`; per-batch console summary; PG failure logged, batch continues (dev-friendly).
+  - Not Spark JDBC: `spark.createDataFrame(pandas_df)` and `batch_df.rdd.*` take the Python-RDD pickle path, which blows up with `RecursionError: Stack overflow` on pyspark 3.5 + Python 3.14. JVM-side `limit(1).count()` for emptiness + direct psycopg2 write sidesteps it entirely.
 - Trigger: 30 s micro-batches; `outputMode("update")`.
-- ⚠️ Checkpoint location is currently **hardcoded** (`job.py:126`) — must point at a writable `file://` dir on the target machine before first run (see Progress → known issues).
+- Checkpoint: `<repo>/checkpoints/vytals` (auto-created; `--checkpoint DIR` or `VYTALS_CHECKPOINT` env overrides).
+- **Verified e2e 2026-10-21:** Kafka (`vitals.raw`, 3 partitions) → Spark → PG on real data — batches score 1.6–2k windows, PG fills LOW→CRITICAL (e.g. 1903 rows / 240 patients / max 86.5 after ~2 min of replay).
 
 ### Postgres (`store/db.py`, config port **5434**)
 ```sql
@@ -184,6 +186,8 @@ Host port map: **5432** system PG · **5433** other project · **5434** vytals P
 | Item | Impact | Status |
 |---|---|---|
 | ~~Stream checkpoint path hardcoded (`job.py`)~~ | ~~streaming job fails on any non-`/home/minhaj` machine~~ | resolved 2026-10-19 — repo-relative `<repo>/checkpoints/vytals` (created at runtime), `--checkpoint` flag + `VYTALS_CHECKPOINT` env |
+| pyspark 3.5 + Python 3.14: `toPandas()` → `ModuleNotFoundError: distutils` | stream dies on first batch | resolved 2026-10-21 — `setuptools` in requirements shims distutils |
+| pyspark 3.5 + Python 3.14: `createDataFrame(pandas)` / `.rdd` → `RecursionError: Stack overflow` | PG sink unusable via Spark | resolved 2026-10-21 — psycopg2 sink + JVM-side emptiness check |
 | Legacy `docker-compose` v1 broken vs Docker 29 | use `docker run` (documented) | workaround in place |
 | PG-backed API read path exists but UI reads replay | live PG scores not yet surfaced in dashboard | open (post-MVP) |
 | Spark jar resolution needs network on first run | cold start slower | documented |
